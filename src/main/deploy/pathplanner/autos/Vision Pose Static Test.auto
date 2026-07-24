@@ -1,0 +1,16 @@
+{
+  "version": "2025.0",
+  "startingPose": {
+    "position": {
+      "x": 4.407,
+      "y": 7.279
+    },
+    "rotation": 90.0
+  },
+  "command": {
+    "type": "wait",
+    "data": {
+      "waitTime": 5.0
+    }
+  }
+}

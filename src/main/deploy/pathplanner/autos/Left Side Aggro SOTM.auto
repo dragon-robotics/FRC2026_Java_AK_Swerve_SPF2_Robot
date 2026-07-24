@@ -1,0 +1,37 @@
+{
+  "version": "2025.0",
+  "command": {
+    "type": "sequential",
+    "data": {
+      "commands": [
+        {
+          "type": "path",
+          "data": {
+            "pathName": "LTrench through NZ"
+          }
+        },
+        {
+          "type": "path",
+          "data": {
+            "pathName": "Left NZ Cross Bump"
+          }
+        },
+        {
+          "type": "path",
+          "data": {
+            "pathName": "Left Cross Trench to NZ SOTM"
+          }
+        },
+        {
+          "type": "path",
+          "data": {
+            "pathName": "Left Cross Trench to NZ SOTM"
+          }
+        }
+      ]
+    }
+  },
+  "resetOdom": true,
+  "folder": null,
+  "choreoAuto": false
+}
