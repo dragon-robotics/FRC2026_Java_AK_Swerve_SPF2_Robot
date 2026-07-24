@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
-import frc.robot.FieldConstants.FieldZones;
+import frc.robot.util.constants.FieldConstants.FieldZones;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 

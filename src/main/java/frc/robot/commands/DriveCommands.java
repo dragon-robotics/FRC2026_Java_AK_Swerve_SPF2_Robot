@@ -33,20 +33,18 @@ import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
-import frc.robot.FieldConstants.FieldZones;
 import frc.robot.subsystems.drive.Drive;
-
 import static frc.robot.subsystems.drive.DriveConstants.DEADBAND;
-import static frc.robot.subsystems.drive.DriveConstants.HEADING_KP;
-import static frc.robot.subsystems.drive.DriveConstants.HEADING_KI;
-import static frc.robot.subsystems.drive.DriveConstants.HEADING_KD;
-import static frc.robot.subsystems.drive.DriveConstants.ROTATION_MAX_VELOCITY;
-import static frc.robot.subsystems.drive.DriveConstants.ROTATION_MAX_ACCELERATION;
-
-import static frc.robot.subsystems.drive.DriveConstants.FF_START_DELAY;
 import static frc.robot.subsystems.drive.DriveConstants.FF_RAMP_RATE;
+import static frc.robot.subsystems.drive.DriveConstants.FF_START_DELAY;
+import static frc.robot.subsystems.drive.DriveConstants.HEADING_KD;
+import static frc.robot.subsystems.drive.DriveConstants.HEADING_KI;
+import static frc.robot.subsystems.drive.DriveConstants.HEADING_KP;
+import static frc.robot.subsystems.drive.DriveConstants.ROTATION_MAX_ACCELERATION;
+import static frc.robot.subsystems.drive.DriveConstants.ROTATION_MAX_VELOCITY;
 import static frc.robot.subsystems.drive.DriveConstants.WHEEL_RADIUS_MAX_VELOCITY;
 import static frc.robot.subsystems.drive.DriveConstants.WHEEL_RADIUS_RAMP_RATE;
+import frc.robot.util.constants.FieldConstants.FieldZones;
 
 public class DriveCommands {
 
@@ -117,8 +115,7 @@ public class DriveCommands {
         speeds, isFlipped ? robotRotation.plus(new Rotation2d(Math.PI)) : robotRotation);
   }
 
-  public static Optional<Rotation2d> getZoneLockedHeading(
-      FieldZones zone, Alliance alliance) {
+  public static Optional<Rotation2d> getZoneLockedHeading(FieldZones zone, Alliance alliance) {
     double leftLockDegrees = alliance == Alliance.Red ? 135.0 : -45.0;
     double rightLockDegrees = alliance == Alliance.Red ? -135.0 : 45.0;
 
@@ -209,11 +206,12 @@ public class DriveCommands {
       DoubleConsumer rotationLastTriggeredSetter,
       Supplier<Optional<Rotation2d>> zoneLockedHeadingGetter) {
     ProfiledPIDController orientationController;
-      orientationController = new ProfiledPIDController(
-              HEADING_KP,
-              HEADING_KI,
-              HEADING_KD,
-              new TrapezoidProfile.Constraints(ROTATION_MAX_VELOCITY, ROTATION_MAX_ACCELERATION));
+    orientationController =
+        new ProfiledPIDController(
+            HEADING_KP,
+            HEADING_KI,
+            HEADING_KD,
+            new TrapezoidProfile.Constraints(ROTATION_MAX_VELOCITY, ROTATION_MAX_ACCELERATION));
     orientationController.enableContinuousInput(-Math.PI, Math.PI);
 
     return Commands.run(
