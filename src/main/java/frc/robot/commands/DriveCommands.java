@@ -7,6 +7,17 @@
 
 package frc.robot.commands;
 
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Optional;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.DoubleConsumer;
+import java.util.function.DoubleSupplier;
+import java.util.function.Supplier;
+
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.controller.ProfiledPIDController;
 import edu.wpi.first.math.filter.SlewRateLimiter;
@@ -22,26 +33,109 @@ import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import frc.robot.FieldConstants.FieldZones;
 import frc.robot.subsystems.drive.Drive;
-import java.text.DecimalFormat;
-import java.text.NumberFormat;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.function.DoubleSupplier;
-import java.util.function.Supplier;
+
+import static frc.robot.subsystems.drive.DriveConstants.DEADBAND;
+import static frc.robot.subsystems.drive.DriveConstants.HEADING_KP;
+import static frc.robot.subsystems.drive.DriveConstants.HEADING_KI;
+import static frc.robot.subsystems.drive.DriveConstants.HEADING_KD;
+import static frc.robot.subsystems.drive.DriveConstants.ROTATION_MAX_VELOCITY;
+import static frc.robot.subsystems.drive.DriveConstants.ROTATION_MAX_ACCELERATION;
+
+import static frc.robot.subsystems.drive.DriveConstants.FF_START_DELAY;
+import static frc.robot.subsystems.drive.DriveConstants.FF_RAMP_RATE;
+import static frc.robot.subsystems.drive.DriveConstants.WHEEL_RADIUS_MAX_VELOCITY;
+import static frc.robot.subsystems.drive.DriveConstants.WHEEL_RADIUS_RAMP_RATE;
 
 public class DriveCommands {
-  private static final double DEADBAND = 0.1;
-  private static final double ANGLE_KP = 5.0;
-  private static final double ANGLE_KD = 0.4;
-  private static final double ANGLE_MAX_VELOCITY = 8.0;
-  private static final double ANGLE_MAX_ACCELERATION = 20.0;
-  private static final double FF_START_DELAY = 2.0; // Secs
-  private static final double FF_RAMP_RATE = 0.1; // Volts/Sec
-  private static final double WHEEL_RADIUS_MAX_VELOCITY = 0.25; // Rad/Sec
-  private static final double WHEEL_RADIUS_RAMP_RATE = 0.05; // Rad/Sec^2
 
   private DriveCommands() {}
+
+  enum DriveMode {
+    LOCK_ZONE,
+    ROTATE,
+    HOLD_HEADING
+  }
+
+  record JoystickSpeeds(double translation, double strafe, double rotation) {}
+
+  static JoystickSpeeds processJoystickInputs(
+      double rawTranslation,
+      double rawStrafe,
+      double rawRotation,
+      boolean halfSpeed,
+      double maxLinearSpeed,
+      double maxAngularSpeed) {
+    double translation = MathUtil.applyDeadband(rawTranslation, DEADBAND, 1.0);
+    double strafe = MathUtil.applyDeadband(rawStrafe, DEADBAND, 1.0);
+    double rotation = MathUtil.applyDeadband(rawRotation, DEADBAND, 1.0);
+
+    translation = Math.copySign(translation * translation, translation);
+    strafe = Math.copySign(strafe * strafe, strafe);
+    rotation = Math.copySign(rotation * rotation, rotation);
+
+    if (halfSpeed) {
+      translation *= 0.45;
+      strafe *= 0.45;
+      rotation *= 0.45;
+    }
+
+    return new JoystickSpeeds(
+        translation * maxLinearSpeed, strafe * maxLinearSpeed, rotation * maxAngularSpeed);
+  }
+
+  static DriveMode selectDriveMode(
+      boolean angleLock,
+      boolean zoneHeadingAvailable,
+      boolean rotationTriggered,
+      boolean rotationActive) {
+    if (angleLock && zoneHeadingAvailable) {
+      return DriveMode.LOCK_ZONE;
+    }
+    if (rotationTriggered || rotationActive) {
+      return DriveMode.ROTATE;
+    }
+    return DriveMode.HOLD_HEADING;
+  }
+
+  static boolean isRotationActive(
+      double rotationLastTriggered, double now, double measuredOmegaRadiansPerSecond) {
+    return MathUtil.isNear(rotationLastTriggered, now, 0.1)
+        && Math.abs(measuredOmegaRadiansPerSecond) > Math.toRadians(10);
+  }
+
+  static boolean shouldResetOrientationController(
+      DriveMode mode, Optional<Rotation2d> storedHeading) {
+    return mode != DriveMode.ROTATE && storedHeading.isEmpty();
+  }
+
+  static ChassisSpeeds toFieldRelativeSpeeds(
+      ChassisSpeeds speeds, Rotation2d robotRotation, Alliance alliance) {
+    boolean isFlipped = alliance == Alliance.Red;
+    return ChassisSpeeds.fromFieldRelativeSpeeds(
+        speeds, isFlipped ? robotRotation.plus(new Rotation2d(Math.PI)) : robotRotation);
+  }
+
+  public static Optional<Rotation2d> getZoneLockedHeading(
+      FieldZones zone, Alliance alliance) {
+    double leftLockDegrees = alliance == Alliance.Red ? 135.0 : -45.0;
+    double rightLockDegrees = alliance == Alliance.Red ? -135.0 : 45.0;
+
+    return switch (zone) {
+      case ALLIANCE_LEFT,
+          NEUTRAL_LEFT_SHOOT,
+          NEUTRAL_LEFT_PURGE,
+          NEUTRAL_LEFT,
+          OPPONENT_LEFT -> Optional.of(Rotation2d.fromDegrees(leftLockDegrees));
+      case ALLIANCE_RIGHT,
+          NEUTRAL_RIGHT_SHOOT,
+          NEUTRAL_RIGHT_PURGE,
+          NEUTRAL_RIGHT,
+          OPPONENT_RIGHT -> Optional.of(Rotation2d.fromDegrees(rightLockDegrees));
+      default -> Optional.empty();
+    };
+  }
 
   private static Translation2d getLinearVelocityFromJoysticks(double x, double y) {
     // Apply deadband
@@ -62,14 +156,14 @@ public class DriveCommands {
    */
   public static Command joystickDrive(
       Drive drive,
-      DoubleSupplier xSupplier,
-      DoubleSupplier ySupplier,
+      DoubleSupplier translationSup,
+      DoubleSupplier strafeSup,
       DoubleSupplier omegaSupplier) {
     return Commands.run(
         () -> {
           // Get linear velocity
           Translation2d linearVelocity =
-              getLinearVelocityFromJoysticks(xSupplier.getAsDouble(), ySupplier.getAsDouble());
+              getLinearVelocityFromJoysticks(translationSup.getAsDouble(), strafeSup.getAsDouble());
 
           // Apply rotation deadband
           double omega = MathUtil.applyDeadband(omegaSupplier.getAsDouble(), DEADBAND);
@@ -97,23 +191,119 @@ public class DriveCommands {
   }
 
   /**
+   * Default, field relative drive command using joystick for linear control and PID to hold current
+   * orientation, but also control angular rotation if the user requests rotation Also supports
+   * half-speed mode and zone-locked heading where the robot maintains a specific orientation
+   * relative to areas of the field.
+   */
+  public static Command joystickDefaultDrive(
+      Drive drive,
+      DoubleSupplier translationSup,
+      DoubleSupplier strafeSup,
+      DoubleSupplier omegaSupplier,
+      BooleanSupplier halfSpeedSupplier,
+      BooleanSupplier angleLockSup,
+      Supplier<Optional<Rotation2d>> headingGetter,
+      Consumer<Optional<Rotation2d>> headingSetter,
+      DoubleSupplier rotationLastTriggeredGetter,
+      DoubleConsumer rotationLastTriggeredSetter,
+      Supplier<Optional<Rotation2d>> zoneLockedHeadingGetter) {
+    ProfiledPIDController orientationController;
+      orientationController = new ProfiledPIDController(
+              HEADING_KP,
+              HEADING_KI,
+              HEADING_KD,
+              new TrapezoidProfile.Constraints(ROTATION_MAX_VELOCITY, ROTATION_MAX_ACCELERATION));
+    orientationController.enableContinuousInput(-Math.PI, Math.PI);
+
+    return Commands.run(
+            () -> {
+              double rawRotation = omegaSupplier.getAsDouble();
+              JoystickSpeeds speeds =
+                  processJoystickInputs(
+                      translationSup.getAsDouble(),
+                      strafeSup.getAsDouble(),
+                      rawRotation,
+                      halfSpeedSupplier.getAsBoolean(),
+                      drive.getMaxLinearSpeedMetersPerSec(),
+                      drive.getMaxAngularSpeedRadPerSec());
+
+              boolean rotationTriggered = Math.abs(rawRotation) > DEADBAND;
+              if (rotationTriggered) {
+                rotationLastTriggeredSetter.accept(Timer.getFPGATimestamp());
+              }
+              boolean rotationActive =
+                  isRotationActive(
+                      rotationLastTriggeredGetter.getAsDouble(),
+                      Timer.getFPGATimestamp(),
+                      drive.getChassisSpeeds().omegaRadiansPerSecond);
+
+              Optional<Rotation2d> zoneHeading = zoneLockedHeadingGetter.get();
+              DriveMode mode =
+                  selectDriveMode(
+                      angleLockSup.getAsBoolean(),
+                      zoneHeading.isPresent(),
+                      rotationTriggered,
+                      rotationActive);
+
+              Rotation2d currentRotation = drive.getRotation();
+              Optional<Rotation2d> storedHeading = headingGetter.get();
+              if (shouldResetOrientationController(mode, storedHeading)) {
+                orientationController.reset(currentRotation.getRadians());
+              }
+
+              double omega = speeds.rotation();
+              Optional<Rotation2d> targetHeading = Optional.empty();
+              switch (mode) {
+                case LOCK_ZONE:
+                  headingSetter.accept(Optional.of(currentRotation));
+                  targetHeading = zoneHeading;
+                  break;
+                case ROTATE:
+                  headingSetter.accept(Optional.empty());
+                  break;
+                case HOLD_HEADING:
+                  if (storedHeading.isEmpty()) {
+                    storedHeading = Optional.of(currentRotation);
+                    headingSetter.accept(storedHeading);
+                  }
+                  targetHeading = storedHeading;
+                  break;
+              }
+
+              if (targetHeading.isPresent()) {
+                omega =
+                    orientationController.calculate(
+                        currentRotation.getRadians(), targetHeading.get().getRadians());
+              }
+
+              ChassisSpeeds chassisSpeeds =
+                  new ChassisSpeeds(speeds.translation(), speeds.strafe(), omega);
+              Alliance alliance = DriverStation.getAlliance().orElse(Alliance.Blue);
+              drive.runVelocity(toFieldRelativeSpeeds(chassisSpeeds, currentRotation, alliance));
+            },
+            drive)
+        .beforeStarting(() -> orientationController.reset(drive.getRotation().getRadians()));
+  }
+
+  /**
    * Field relative drive command using joystick for linear control and PID for angular control.
    * Possible use cases include snapping to an angle, aiming at a vision target, or controlling
    * absolute rotation with a joystick.
    */
   public static Command joystickDriveAtAngle(
       Drive drive,
-      DoubleSupplier xSupplier,
-      DoubleSupplier ySupplier,
+      DoubleSupplier translationSup,
+      DoubleSupplier strafeSup,
       Supplier<Rotation2d> rotationSupplier) {
 
     // Create PID controller
     ProfiledPIDController angleController =
         new ProfiledPIDController(
-            ANGLE_KP,
-            0.0,
-            ANGLE_KD,
-            new TrapezoidProfile.Constraints(ANGLE_MAX_VELOCITY, ANGLE_MAX_ACCELERATION));
+            HEADING_KP,
+            HEADING_KI,
+            HEADING_KD,
+            new TrapezoidProfile.Constraints(ROTATION_MAX_VELOCITY, ROTATION_MAX_ACCELERATION));
     angleController.enableContinuousInput(-Math.PI, Math.PI);
 
     // Construct command
@@ -121,7 +311,8 @@ public class DriveCommands {
             () -> {
               // Get linear velocity
               Translation2d linearVelocity =
-                  getLinearVelocityFromJoysticks(xSupplier.getAsDouble(), ySupplier.getAsDouble());
+                  getLinearVelocityFromJoysticks(
+                      translationSup.getAsDouble(), strafeSup.getAsDouble());
 
               // Calculate angular speed
               double omega =
