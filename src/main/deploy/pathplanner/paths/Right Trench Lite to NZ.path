@@ -1,0 +1,132 @@
+{
+  "version": "2025.0",
+  "waypoints": [
+    {
+      "anchor": {
+        "x": 3.0,
+        "y": 0.801
+      },
+      "prevControl": null,
+      "nextControl": {
+        "x": 3.569567369345046,
+        "y": 0.683018950514
+      },
+      "isLocked": false,
+      "linkedName": "RTrench Shoot"
+    },
+    {
+      "anchor": {
+        "x": 3.7,
+        "y": 0.651
+      },
+      "prevControl": {
+        "x": 3.367087405027319,
+        "y": 0.754880379914
+      },
+      "nextControl": {
+        "x": 3.9854699811533276,
+        "y": 0.561923375853
+      },
+      "isLocked": false,
+      "linkedName": "RTrench Near"
+    },
+    {
+      "anchor": {
+        "x": 6.8,
+        "y": 0.851
+      },
+      "prevControl": {
+        "x": 6.304025837606937,
+        "y": 0.552453060445
+      },
+      "nextControl": {
+        "x": 7.464569604000574,
+        "y": 1.251031365421
+      },
+      "isLocked": false,
+      "linkedName": null
+    },
+    {
+      "anchor": {
+        "x": 7.75,
+        "y": 3.301
+      },
+      "prevControl": {
+        "x": 7.559787887801727,
+        "y": 3.044522321998
+      },
+      "nextControl": null,
+      "isLocked": false,
+      "linkedName": null
+    }
+  ],
+  "rotationTargets": [
+    {
+      "waypointRelativePos": 0.2,
+      "rotationDegrees": 0.0
+    },
+    {
+      "waypointRelativePos": 2.0,
+      "rotationDegrees": 0.0
+    }
+  ],
+  "constraintZones": [
+    {
+      "name": "Constraints Zone",
+      "minWaypointRelativePos": 0.0,
+      "maxWaypointRelativePos": 1.497307001795332,
+      "constraints": {
+        "maxVelocity": 1.5,
+        "maxAcceleration": 2.0,
+        "maxAngularVelocity": 540.0,
+        "maxAngularAcceleration": 1080.0,
+        "nominalVoltage": 12.0,
+        "unlimited": false
+      }
+    }
+  ],
+  "pointTowardsZones": [],
+  "eventMarkers": [
+    {
+      "name": "Drive",
+      "waypointRelativePos": 0,
+      "endWaypointRelativePos": null,
+      "command": {
+        "type": "named",
+        "data": {
+          "name": "Drive"
+        }
+      }
+    },
+    {
+      "name": "Intake",
+      "waypointRelativePos": 1.4219030520646345,
+      "endWaypointRelativePos": null,
+      "command": {
+        "type": "named",
+        "data": {
+          "name": "Intake"
+        }
+      }
+    }
+  ],
+  "globalConstraints": {
+    "maxVelocity": 3.5,
+    "maxAcceleration": 7.0,
+    "maxAngularVelocity": 360.0,
+    "maxAngularAcceleration": 540.0,
+    "nominalVoltage": 12.0,
+    "unlimited": false
+  },
+  "goalEndState": {
+    "velocity": 0,
+    "rotation": 90.0
+  },
+  "reversed": false,
+  "folder": null,
+  "idealStartingState": {
+    "velocity": 0,
+    "rotation": 60.0
+  },
+  "useDefaultConstraints": false
+}
