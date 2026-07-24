@@ -22,7 +22,6 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
-import frc.robot.FieldConstants.FieldZones;
 import frc.robot.commands.DriveCommands;
 import frc.robot.subsystems.drive.Drive;
 import frc.robot.subsystems.drive.GyroIO;
@@ -31,6 +30,8 @@ import frc.robot.subsystems.drive.ModuleIO;
 import frc.robot.subsystems.drive.ModuleIOSim;
 import frc.robot.subsystems.drive.ModuleIOTalonFX;
 import frc.robot.subsystems.drive.TunerConstants;
+import frc.robot.util.constants.FieldConstants.FieldZones;
+import frc.robot.util.constants.OperatorConstants;
 
 /**
  * This class is where the bulk of the robot should be declared. Since Command-based is a
@@ -47,7 +48,9 @@ public class RobotContainer {
   private double rotationLastTriggered = 0.0;
 
   // Controller
-  private final CommandXboxController controller = new CommandXboxController(0);
+
+  private final CommandXboxController driverController = new CommandXboxController(OperatorConstants.DRIVER_PORT);
+  private final CommandXboxController operatorController = new CommandXboxController(OperatorConstants.OPERATOR_PORT);
 
   // Dashboard inputs
   private final LoggedDashboardChooser<Command> autoChooser;
@@ -126,33 +129,20 @@ public class RobotContainer {
     drive.setDefaultCommand(
         DriveCommands.joystickDefaultDrive(
             drive,
-            () -> -controller.getLeftY(),
-            () -> -controller.getLeftX(),
-            () -> -controller.getRightX(),
-            () -> controller.getHID().getPOV() == 0,
-            () -> controller.getHID().getXButton(),
+            () -> -driverController.getLeftY(),
+            () -> -driverController.getLeftX(),
+            () -> -driverController.getRightX(),
+            () -> driverController.getHID().getPOV() == 0,
+            () -> driverController.getHID().getXButton(),
             () -> currentDriveHeading,
             heading -> currentDriveHeading = heading,
             () -> rotationLastTriggered,
             timestamp -> rotationLastTriggered = timestamp,
             this::getZoneLockedHeading));
 
-    // Lock to 0° when A button is held
-    controller
-        .a()
-        .whileTrue(
-            DriveCommands.joystickDriveAtAngle(
-                drive,
-                () -> -controller.getLeftY(),
-                () -> -controller.getLeftX(),
-                () -> Rotation2d.kZero));
-
-    // Switch to X pattern when X button is pressed
-    controller.x().onTrue(Commands.runOnce(drive::stopWithX, drive));
-
-    // Reset gyro to 0° when B button is pressed
-    controller
-        .b()
+    // Reset gyro to 0° when start and back buttons are pressed
+    driverController
+        .start().and(driverController.back())
         .onTrue(
             Commands.runOnce(
                     () ->
