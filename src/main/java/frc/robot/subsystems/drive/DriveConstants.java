@@ -44,7 +44,7 @@ public class DriveConstants {
   public static final Current STEER_SUPPLY_CURRENT_LIMIT = Amps.of(20); // Amps
   public static final Current STEER_SUPPLY_CURRENT_LOWER_LIMIT = Amps.of(10); // Amps
   public static final Time STEER_SUPPLY_CURRENT_LOWER_TIME = Seconds.of(0.25); // Secs
-  
+
   public static final Voltage STEER_PEAK_FORWARD_VOLTAGE = Volts.of(12); // Volts
   public static final Voltage STEER_PEAK_REVERSE_VOLTAGE = Volts.of(-12); // Volts
 
@@ -57,7 +57,7 @@ public class DriveConstants {
   public static final double DRIVE_KS = 0;
   public static final double DRIVE_KV = 0.75;
   public static final double DRIVE_KA = 0;
-  
+
   /* Steering closed-loop gains */
   public static final double STEER_KP = 100;
   public static final double STEER_KI = 0;
