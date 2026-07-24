@@ -20,16 +20,13 @@ The mapping matches the reference robot behavior:
 
 ## Field Constants Compatibility
 
-The local `FieldConstants.java` declares package `frc.robot` and remains at its current path. Its zone classifier currently references two missing `SwerveConstants` footprint values. Replace those references with private constants inside `FieldConstants` derived from the source robot's 33-inch square bumper footprint:
+The local `FieldConstants.java` declares package `frc.robot` and remains at its current path. Its zone classifier still uses the old `SwerveConstants` class name. Import `frc.robot.subsystems.drive.DriveConstants` and replace those references with the existing `DriveConstants.ROBOT_CENTER_TO_WIDTH_WITH_BUMPERS_METERS` and `DriveConstants.ROBOT_CENTER_TO_CORNER_WITH_BUMPERS_METERS` values.
 
-- center-to-width with bumpers: half of 33 inches;
-- center-to-corner with bumpers: hypotenuse of the two 16.5-inch half-dimensions.
-
-No general-purpose `SwerveConstants` class will be added to the AdvantageKit project.
+No footprint constants will be duplicated inside `FieldConstants`.
 
 ## Code Changes
 
-- `FieldConstants.java`: add the two local footprint constants and use them in field-zone boundaries.
+- `FieldConstants.java`: replace obsolete `SwerveConstants` references with existing `DriveConstants` footprint values.
 - `DriveCommands.java`: replace `getZoneLockedHeading(Pose2d, Alliance, double)` with `getZoneLockedHeading(FieldZones, Alliance)`.
 - `RobotContainer.java`: remove the local field-width constant and classify the pose with `FieldZones.fromPose` before requesting a heading.
 - `DriveCommandsTest.java`: test left/right mapping and confirm trench/bump zones return empty.
