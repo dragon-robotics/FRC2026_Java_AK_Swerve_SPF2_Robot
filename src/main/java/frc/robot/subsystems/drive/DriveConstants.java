@@ -67,12 +67,12 @@ public class DriveConstants {
   public static final double STEER_KA = 0;
 
   /* Heading controller */
-  public static final double HEADING_KP = 8;
+  public static final double HEADING_KP = 10;
   public static final double HEADING_KI = 0;
   public static final double HEADING_KD = 0.3;
   public static final double HEADING_TOLERANCE = Units.degreesToRadians(5);
-  public static final double ROTATION_MAX_VELOCITY = 8.0;
-  public static final double ROTATION_MAX_ACCELERATION = 16.0;
+  public static final double ROTATION_MAX_VELOCITY = Units.degreesToRadians(720);
+  public static final double ROTATION_MAX_ACCELERATION = Units.degreesToRadians(1440);
 
   /* Module geometry and limits */
   public static final double ANGLE_GEAR_RATIO = 12.8;
