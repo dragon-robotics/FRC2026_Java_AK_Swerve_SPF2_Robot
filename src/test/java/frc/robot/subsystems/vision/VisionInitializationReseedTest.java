@@ -41,6 +41,7 @@ class VisionInitializationReseedTest {
   @Test
   void initializationStateUsesInclusiveMotionBoundariesStrictTimeAndWrappedHeading() {
     InitializationState state = new InitializationState();
+    InitializationState restarted = new InitializationState();
     InitializationState wrapped = new InitializationState();
 
     assertAll(
@@ -49,6 +50,9 @@ class VisionInitializationReseedTest {
         () -> assertEquals(1, state.observe(pose(1.400000001, 1.0, 10.0), 1.2)),
         () -> assertEquals(1, state.observe(pose(1.400000001, 1.0, 10.0), 1.2)),
         () -> assertEquals(1, state.observe(pose(1.400000001, 1.0, 20.000001), 1.3)),
+        () -> assertEquals(1, restarted.observe(pose(3.0, 1.0, 0.0), 3.0)),
+        () -> assertEquals(1, restarted.observe(pose(3.200001, 1.0, 0.0), 3.1)),
+        () -> assertEquals(2, restarted.observe(pose(3.390001, 1.0, 0.0), 3.2)),
         () -> assertEquals(1, wrapped.observe(pose(2.0, 2.0, 179.0), 2.0)),
         () -> assertEquals(2, wrapped.observe(pose(2.0, 2.0, -179.0), 2.1)));
   }
@@ -133,6 +137,34 @@ class VisionInitializationReseedTest {
     assertAll(
         () -> assertEquals(2, vision.initializationState("front").orElseThrow().stablePoseCount()),
         () -> assertTrue(vision.initializationState("rear").isEmpty()));
+  }
+
+  @Test
+  void selectedAlternateSolverOnTheSameCameraPreservesThatCamerasStreak() {
+    RecordingDrive drive = new RecordingDrive();
+    drive.currentPose = pose(2.0, 2.0, 0.0);
+    MutableEnvironment environment = new MutableEnvironment(false, 27.0);
+    SequenceIO front =
+        new SequenceIO("front", coprocessor(26.90, 2.0, 2.0, 0.0, 2, new int[] {1, 2}))
+            .then(photon(27.00, 2.05, 2.0, 0.0, 2, new int[] {1, 2}))
+            .then(coprocessor(27.10, 2.1, 2.0, 0.0, 2, new int[] {1, 2}));
+    Vision vision = vision(environment, drive, true, front);
+
+    vision.periodic();
+    assertEquals(1, vision.initializationState("front").orElseThrow().stablePoseCount());
+
+    environment.now = 27.1;
+    vision.periodic();
+    assertAll(
+        () -> assertEquals(2, drive.measurements.size()),
+        () -> assertEquals(1, vision.initializationState("front").orElseThrow().stablePoseCount()));
+
+    environment.now = 27.2;
+    vision.periodic();
+
+    assertAll(
+        () -> assertEquals(3, drive.measurements.size()),
+        () -> assertEquals(2, vision.initializationState("front").orElseThrow().stablePoseCount()));
   }
 
   @Test
@@ -385,6 +417,29 @@ class VisionInitializationReseedTest {
   }
 
   @Test
+  void automaticDriftDecisionUsesEstimatorPoseAfterSynchronousFusion() {
+    RecordingDrive drive = new RecordingDrive();
+    drive.fuseMeasurementsIntoCurrentPose = true;
+    MutableEnvironment environment = new MutableEnvironment(true, 200.0);
+    SequenceIO front =
+        new SequenceIO("front", coprocessor(199.9, 1.0, 1.0, 0.0, 2, new int[] {1, 2}))
+            .then(coprocessor(200.49, 2.0, 1.0, 0.0, 2, new int[] {1, 2}));
+    Vision vision = vision(environment, drive, true, front);
+
+    vision.periodic();
+    assertEquals(1, drive.estimatorResets.size());
+
+    drive.currentPose = Pose2d.kZero;
+    environment.now = 200.5;
+    vision.periodic();
+
+    assertAll(
+        () -> assertEquals(2, drive.measurements.size()),
+        () -> assertEquals(pose(2.0, 1.0, 0.0), drive.currentPose),
+        () -> assertEquals(1, drive.estimatorResets.size()));
+  }
+
+  @Test
   void
       manualReseedAcceptsFreshEnabledSingleTagButNotMissingOrStaleAndNeverCompletesInitialization() {
     RecordingDrive drive = new RecordingDrive();
@@ -596,11 +651,15 @@ class VisionInitializationReseedTest {
     private Pose2d currentPose = Pose2d.kZero;
     private int truthResetCount;
     private List<String> events;
+    private boolean fuseMeasurementsIntoCurrentPose;
 
     private VisionDriveBindings bindings() {
       return new VisionDriveBindings(
           (pose, timestamp, stdDevs) -> {
             measurements.add(pose);
+            if (fuseMeasurementsIntoCurrentPose) {
+              currentPose = pose;
+            }
             if (events != null) {
               events.add("measurement");
             }
