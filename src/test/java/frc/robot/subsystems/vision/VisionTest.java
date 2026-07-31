@@ -383,6 +383,7 @@ class VisionTest {
     int currentPoseCalls;
     boolean throwOnHistory;
     List<String> events;
+    Runnable beforeHistory;
 
     VisionDriveBindings bindings() {
       return new VisionDriveBindings(
@@ -395,6 +396,9 @@ class VisionTest {
           },
           timestamp -> {
             historyCalls++;
+            if (beforeHistory != null) {
+              beforeHistory.run();
+            }
             if (events != null) {
               events.add("history");
             }

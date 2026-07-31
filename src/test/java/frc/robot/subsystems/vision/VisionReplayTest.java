@@ -2,12 +2,17 @@ package frc.robot.subsystems.vision;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import edu.wpi.first.math.geometry.Pose2d;
 import frc.robot.subsystems.vision.VisionIO.PoseObservation;
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.littletonrobotics.junction.LogReplaySource;
@@ -18,12 +23,10 @@ class VisionReplayTest {
   @Test
   void replayRestoresGeneratedInputsFromFixedConfiguredKeysWithoutPhotonObjects()
       throws ReflectiveOperationException {
-    VisionIO.NoOp[] streams = {
-      new VisionIO.NoOp("front"),
-      new VisionIO.NoOp("right"),
-      new VisionIO.NoOp("rear"),
-      new VisionIO.NoOp("left")
-    };
+    VisionIO.NoOp[] streams =
+        VisionConstants.CAMERAS.stream()
+            .map(camera -> new VisionIO.NoOp(camera.name()))
+            .toArray(VisionIO.NoOp[]::new);
     VisionTest.RecordingDrive drive = new VisionTest.RecordingDrive();
 
     try (ReplayLoggerHarness logger = new ReplayLoggerHarness()) {
@@ -52,21 +55,33 @@ class VisionReplayTest {
               () -> {},
               true,
               streams);
-      vision.periodic();
-
       Field ioField = Vision.class.getDeclaredField("io");
       ioField.setAccessible(true);
       VisionIO[] retained = (VisionIO[]) ioField.get(vision);
       Field inputsField = Vision.class.getDeclaredField("inputs");
       inputsField.setAccessible(true);
       VisionIOInputsAutoLogged[] restored = (VisionIOInputsAutoLogged[]) inputsField.get(vision);
+      drive.beforeHistory =
+          () ->
+              assertAll(
+                  () -> assertEquals("payload-name-0", restored[0].cameraName),
+                  () -> assertEquals("payload-name-1", restored[1].cameraName),
+                  () -> assertEquals("payload-name-2", restored[2].cameraName),
+                  () -> assertEquals("payload-name-3", restored[3].cameraName));
+
+      vision.periodic();
+
       assertAll(
           () -> assertEquals(1, drive.measurements.size()),
           () ->
               assertEquals(
                   new Pose2d(1.0, 1.0, Pose2d.kZero.getRotation()),
                   drive.measurements.get(0).pose()),
-          () -> assertEquals("front", logger.output("Vision/Consensus/SelectedCamera")),
+          () ->
+              assertEquals(
+                  VisionConstants.CAMERAS.get(0).name(),
+                  logger.output("Vision/Consensus/SelectedCamera")),
+          () -> assertEquals(4, drive.historyCalls),
           () -> assertEquals(4, retained.length),
           () -> assertSame(streams[0], retained[0]),
           () -> assertSame(streams[1], retained[1]),
@@ -87,6 +102,18 @@ class VisionReplayTest {
                               name.contains("PhotonCamera")
                                   || name.contains("PhotonCameraSim")
                                   || name.contains("VisionSystemSim"))));
+    }
+  }
+
+  @Test
+  void visionClassHasNoPhotonVisionConstructionDependency() throws IOException {
+    try (InputStream classBytes =
+        Vision.class.getResourceAsStream("/frc/robot/subsystems/vision/Vision.class")) {
+      assertNotNull(classBytes);
+      String constantPool = new String(classBytes.readAllBytes(), StandardCharsets.ISO_8859_1);
+      assertFalse(
+          constantPool.contains("org/photonvision/"),
+          "Vision must not reference PhotonVision types because replay constructs this class");
     }
   }
 

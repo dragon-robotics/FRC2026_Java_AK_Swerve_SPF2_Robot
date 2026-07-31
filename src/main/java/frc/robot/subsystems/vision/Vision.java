@@ -263,9 +263,14 @@ public class Vision extends SubsystemBase {
     CameraLoopLog winnerLog = cameraLogs[winner.cameraIndex()];
     winnerLog.selectedRobotPoses.add(winner.observation().pose());
     selectedRobotPoses.add(winner.observation().pose());
-    for (Pose3d tagPose : winnerLog.tagPoses) {
-      acceptedTagToPoseLines.add(tagPose);
-      acceptedTagToPoseLines.add(winner.observation().pose());
+    for (int tagId : winner.observation().tagIds()) {
+      FieldConstants.APTAG_FIELD_LAYOUT
+          .getTagPose(tagId)
+          .ifPresent(
+              tagPose -> {
+                acceptedTagToPoseLines.add(tagPose);
+                acceptedTagToPoseLines.add(winner.observation().pose());
+              });
     }
     drive
         .measurementConsumer()
