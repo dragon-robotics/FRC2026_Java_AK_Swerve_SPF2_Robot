@@ -188,3 +188,6 @@ src/main/java/frc/robot/BuildConstants.java
 
 # Codex planning notes
 docs/
+
+# Local Git worktrees
+/.worktrees/
