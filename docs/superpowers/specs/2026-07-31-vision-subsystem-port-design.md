@@ -447,6 +447,12 @@ Photon simulation uses one shared, instance-owned `VisionSystemSim` for the four
 updated once per robot loop before camera inputs are read. Avoiding static global simulation state
 prevents duplicate cameras and cross-test contamination.
 
+`VisionIOPhotonVisionSim` creates one `PhotonCamera`, passes that exact instance through a
+package-private `VisionIOPhotonVision` decoder constructor, and registers the same instance with the
+shared owner. Camera adapters never update the simulated system. The production REAL constructor is
+unchanged. The owner's public read-only camera/update counters and immutable camera diagnostics
+support isolated lifecycle tests without exposing mutable Photon simulation objects.
+
 Each simulated camera retains the reference properties:
 
 - Resolution: `800 x 600`.
@@ -455,6 +461,13 @@ Each simulated camera retains the reference properties:
 - Frame rate: `60 FPS`.
 - Average latency: `10 ms`.
 - Latency standard deviation: `5 ms`.
+
+Diagnostics read resolution, intrinsics, FPS, and latency from each registered camera simulation.
+Calibration error and a deterministic seeded pixel-noise sample share the one settings path that
+calls `setCalibError(0.38, 0.1)`. PhotonLib 2026.3.4 evaluates FOV getter endpoints at `width` and
+`height`, one pixel beyond the final valid pixel center, and `getDiagFOV()` is not the geometric
+inverse of `setCalibration`. The diagnostic therefore derives the approved `72 degree` geometric
+diagonal from the registered intrinsics and valid `(resolution - 1)` pixel-center extents.
 
 `Drive` maintains an independent odometry pose from gyro/module samples. Vision measurements and
 vision resets cannot modify it. AutoBuilder is wired to `setPoseAndSimulationTruth()` so an
@@ -611,6 +624,11 @@ Tests cover:
 The four-camera simulation uses independent truth and requires nonzero detections and accepted
 observations. It exercises the eight reference stationary poses and representative translation and
 rotation motion.
+
+Lifecycle tests also pin shared-camera identity, duplicate-name rejection, one owner update before
+the first decoder read, public counters, immutable exact-property diagnostics, deterministic
+calibration-noise behavior, geometric FOV normalization, and idempotent native/NetworkTables camera
+cleanup.
 
 Both startup orders run the same deterministic scenarios and must satisfy:
 
