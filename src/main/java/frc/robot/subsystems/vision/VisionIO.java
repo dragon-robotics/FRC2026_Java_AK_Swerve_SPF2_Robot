@@ -62,6 +62,17 @@ public interface VisionIO {
     public TargetObservation latestTargetObservation = TargetObservation.NONE;
     public PoseObservationLog[] poseObservationLogs = new PoseObservationLog[0];
     public int[][] poseObservationTagIds = new int[0][];
+    public int[] tagIds = new int[0];
+
+    /** Stores the deduplicated IDs seen by this camera during the current update. */
+    public void setTagIds(int[] tagIds) {
+      this.tagIds = tagIds == null ? new int[0] : Arrays.copyOf(tagIds, tagIds.length);
+    }
+
+    /** Returns a defensive copy of the deduplicated camera-level tag IDs. */
+    public int[] getTagIds() {
+      return Arrays.copyOf(tagIds, tagIds.length);
+    }
 
     /** Stores observations in the AutoLog-compatible record-plus-sidecar representation. */
     public void setPoseObservations(PoseObservation[] poseObservations) {
@@ -136,6 +147,7 @@ public interface VisionIO {
       inputs.connected = false;
       inputs.latestTargetObservation = TargetObservation.NONE;
       inputs.setPoseObservations(new PoseObservation[0]);
+      inputs.setTagIds(new int[0]);
     }
   }
 

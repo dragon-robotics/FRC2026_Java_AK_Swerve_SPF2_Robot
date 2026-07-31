@@ -126,12 +126,18 @@ existing annotation processor.
 - Latest best-target yaw and pitch.
 - All pose observations decoded during the update, losslessly stored as AutoLog-compatible
   `PoseObservationLog[]` fields plus a parallel `int[][]` tag-ID sidecar.
+- A separate camera-level `int[]` containing deduplicated IDs from successfully emitted
+  observations in the current update.
 
 `PoseObservation` remains the public/runtime immutable record with variable-length defensively
 copied tag IDs. AdvantageKit 26.0.2 record structs cannot encode an array component, so
 `VisionIOInputs.setPoseObservations()` splits runtime observations into the supported log record
 and sidecar; `getPoseObservations()` reconstructs them by index. Missing or mismatched sidecar rows
 become empty arrays without altering the other observation fields.
+
+The camera-level IDs are not part of the per-observation sidecar. Runtime callers use defensive
+`setTagIds()` and `getTagIds()` accessors; null input is treated as empty, and AutoLog stores the
+aggregate `int[]` directly. `VisionIO.NoOp` and every empty update explicitly clear these IDs.
 
 Every `VisionIO` also exposes an immutable configured camera name outside the replayed input
 snapshot. `Vision` uses that fixed identity to select `Logger.processInputs()` keys before replay
@@ -182,6 +188,8 @@ For a result with targets:
 5. Collect valid positive fiducial IDs, ambiguity samples, and distance samples.
 6. Emit one observation with the solver's original capture timestamp, successful strategy, and
    contributing tag IDs.
+7. Publish the deduplicated union of positive IDs from successfully emitted observations through
+   `VisionIOInputs.setTagIds()`.
 
 Ambiguity is the mean of `max(0, ambiguity)` across contributing targets. The default confidence
 distance is the average across all contributing tags. System property

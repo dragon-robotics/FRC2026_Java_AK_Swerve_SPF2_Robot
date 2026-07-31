@@ -13,6 +13,31 @@ import org.littletonrobotics.junction.LogTable;
 
 class VisionIOTest {
   @Test
+  void cameraTagIdsDefaultToEmptyAndNullClearsThem() {
+    VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
+
+    assertArrayEquals(new int[0], inputs.getTagIds());
+
+    inputs.setTagIds(new int[] {3, 7});
+    inputs.setTagIds(null);
+
+    assertArrayEquals(new int[0], inputs.getTagIds());
+  }
+
+  @Test
+  void cameraTagIdsCopyCallerArraysInBothDirections() {
+    VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
+    int[] sourceTagIds = {3, 7};
+
+    inputs.setTagIds(sourceTagIds);
+    sourceTagIds[0] = 99;
+    int[] returnedTagIds = inputs.getTagIds();
+    returnedTagIds[1] = 99;
+
+    assertArrayEquals(new int[] {3, 7}, inputs.getTagIds());
+  }
+
+  @Test
   void poseObservationCopiesTagIdsInBothDirections() {
     int[] sourceTagIds = {3, 7};
     VisionIO.PoseObservation observation = observation(sourceTagIds);
@@ -42,6 +67,7 @@ class VisionIOTest {
     inputs.latestTargetObservation =
         new VisionIO.TargetObservation(Rotation2d.fromDegrees(8.0), Rotation2d.fromDegrees(-3.0));
     inputs.setPoseObservations(new VisionIO.PoseObservation[] {observation(new int[] {1})});
+    inputs.setTagIds(new int[] {1, 4});
 
     new VisionIO.NoOp("camera").updateInputs(inputs);
 
@@ -51,7 +77,21 @@ class VisionIOTest {
         () -> assertEquals(Rotation2d.kZero, inputs.latestTargetObservation.tx()),
         () -> assertEquals(Rotation2d.kZero, inputs.latestTargetObservation.ty()),
         () -> assertEquals(0, inputs.getPoseObservations().length),
-        () -> assertEquals(0, inputs.poseObservationTagIds.length));
+        () -> assertEquals(0, inputs.poseObservationTagIds.length),
+        () -> assertArrayEquals(new int[0], inputs.getTagIds()));
+  }
+
+  @Test
+  void autoLoggedInputsRoundTripAggregateCameraTagIdsThroughLogTable() {
+    VisionIOInputsAutoLogged source = new VisionIOInputsAutoLogged();
+    source.setTagIds(new int[] {3, 7});
+    LogTable table = new LogTable(0);
+    source.toLog(table);
+
+    VisionIOInputsAutoLogged replayed = new VisionIOInputsAutoLogged();
+    replayed.fromLog(table);
+
+    assertArrayEquals(new int[] {3, 7}, replayed.getTagIds());
   }
 
   @Test
