@@ -29,6 +29,10 @@ import frc.robot.subsystems.hopper.Hopper;
 import frc.robot.subsystems.hopper.HopperIO;
 import frc.robot.subsystems.hopper.HopperIOSim;
 import frc.robot.subsystems.hopper.HopperIOTalonFX;
+import frc.robot.subsystems.intake.Intake;
+import frc.robot.subsystems.intake.IntakeIO;
+import frc.robot.subsystems.intake.IntakeIOSim;
+import frc.robot.subsystems.intake.IntakeIOTalonFX;
 import frc.robot.subsystems.shooter.Shooter;
 import frc.robot.subsystems.shooter.ShooterIO;
 import frc.robot.subsystems.shooter.ShooterIOSim;
@@ -53,8 +57,15 @@ public class RobotContainer {
     }
   }
 
+  record IntakeIOFactory<T extends IntakeIO>(Class<T> implementationType, Supplier<T> constructor) {
+    T create() {
+      return constructor.get();
+    }
+  }
+
   // Subsystems
   private final Drive drive;
+  private final Intake intake;
   private final Hopper hopper;
   private final Shooter shooter;
 
@@ -111,6 +122,7 @@ public class RobotContainer {
         break;
     }
 
+    intake = new Intake(createIntakeIO(Constants.currentMode));
     hopper = new Hopper(createHopperIO(Constants.currentMode));
     shooter = new Shooter(createShooterIO(Constants.currentMode));
 
@@ -207,6 +219,18 @@ public class RobotContainer {
       case REAL -> new ShooterIOFactory<>(ShooterIOTalonFX.class, ShooterIOTalonFX::new);
       case SIM -> new ShooterIOFactory<>(ShooterIOSim.class, ShooterIOSim::new);
       case REPLAY -> new ShooterIOFactory<>(ShooterIO.NoOp.class, ShooterIO.NoOp::new);
+    };
+  }
+
+  static IntakeIO createIntakeIO(Constants.Mode mode) {
+    return intakeIOFactory(mode).create();
+  }
+
+  static IntakeIOFactory<? extends IntakeIO> intakeIOFactory(Constants.Mode mode) {
+    return switch (mode) {
+      case REAL -> new IntakeIOFactory<>(IntakeIOTalonFX.class, IntakeIOTalonFX::new);
+      case SIM -> new IntakeIOFactory<>(IntakeIOSim.class, IntakeIOSim::new);
+      case REPLAY -> new IntakeIOFactory<>(IntakeIO.NoOp.class, IntakeIO.NoOp::new);
     };
   }
 }
