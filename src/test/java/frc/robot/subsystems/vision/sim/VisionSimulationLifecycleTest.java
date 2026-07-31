@@ -2,8 +2,12 @@ package frc.robot.subsystems.vision.sim;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import edu.wpi.first.cameraserver.CameraServer;
+import edu.wpi.first.cscore.VideoException;
 import edu.wpi.first.hal.HAL;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Pose3d;
@@ -79,6 +83,9 @@ class VisionSimulationLifecycleTest {
         adapters.add(
             new VisionIOPhotonVisionSim(camera, CONFIG, new FixedHeadingProvider(), owner));
       }
+      for (VisionIOPhotonVisionSim adapter : adapters) {
+        assertTrue(VisionSimulationHarness.usesExactOwnedCamera(owner, adapter));
+      }
 
       List<CameraDiagnostics> diagnostics = owner.cameraDiagnostics();
       assertAll(
@@ -140,6 +147,41 @@ class VisionSimulationLifecycleTest {
         () -> assertEquals(0, owner.cameraCount()),
         () -> assertThrows(IllegalStateException.class, owner::update),
         owner::close);
+    assertCameraServerResourcesGone();
+
+    VisionSimulation replacement =
+        new VisionSimulation("task8-lifecycle-replacement-" + UUID.randomUUID(), () -> truth);
+    try (replacement) {
+      List<VisionIOPhotonVisionSim> replacementAdapters = new ArrayList<>();
+      for (CameraConfig camera : VisionConstants.CAMERAS) {
+        VisionIOPhotonVisionSim adapter =
+            new VisionIOPhotonVisionSim(camera, CONFIG, new FixedHeadingProvider(), replacement);
+        replacementAdapters.add(adapter);
+        assertTrue(VisionSimulationHarness.usesExactOwnedCamera(replacement, adapter));
+      }
+      SimHooks.stepTiming(0.020);
+      replacement.update();
+      for (VisionIOPhotonVisionSim adapter : replacementAdapters) {
+        adapter.updateInputs(new VisionIOInputs());
+      }
+      assertEquals(1L, replacement.updateCount());
+    }
+    assertEquals(0, replacement.cameraCount());
+    assertCameraServerResourcesGone();
+  }
+
+  private static void assertCameraServerResourcesGone() {
+    for (CameraConfig camera : VisionConstants.CAMERAS) {
+      assertStreamResourcesGone(camera.name() + "-raw");
+      assertStreamResourcesGone(camera.name() + "-processed");
+    }
+  }
+
+  private static void assertStreamResourcesGone(String streamName) {
+    assertNull(CameraServer.getServer("serve_" + streamName));
+    VideoException missingSource =
+        assertThrows(VideoException.class, () -> CameraServer.getVideo(streamName));
+    assertTrue(missingSource.getMessage().contains("could not find camera " + streamName));
   }
 
   private static final class FixedHeadingProvider implements VisionIOPhotonVision.HeadingProvider {

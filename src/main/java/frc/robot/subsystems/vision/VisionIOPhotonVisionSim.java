@@ -5,6 +5,8 @@ import org.photonvision.PhotonCamera;
 
 /** Real Photon decoder backed by a camera registered with one shared simulation owner. */
 public final class VisionIOPhotonVisionSim extends VisionIOPhotonVision {
+  private final PhotonCamera camera;
+
   public VisionIOPhotonVisionSim(
       CameraConfig cameraConfig,
       VisionRuntimeConfig runtimeConfig,
@@ -25,11 +27,16 @@ public final class VisionIOPhotonVisionSim extends VisionIOPhotonVision {
       VisionSimulation simulation,
       PhotonCamera camera) {
     super(cameraConfig, runtimeConfig, camera, headingProvider);
+    this.camera = camera;
     try {
       simulation.registerCamera(camera, cameraConfig);
     } catch (RuntimeException | Error exception) {
       camera.close();
       throw exception;
     }
+  }
+
+  boolean usesExactOwnedCamera(VisionSimulation simulation) {
+    return usesExactPhotonCamera(camera) && simulation.hasExactCameraInstance(camera);
   }
 }

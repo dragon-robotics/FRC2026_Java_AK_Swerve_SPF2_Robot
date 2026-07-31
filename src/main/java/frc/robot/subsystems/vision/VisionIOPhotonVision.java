@@ -114,6 +114,11 @@ public class VisionIOPhotonVision implements VisionIO {
     return cameraSource.name();
   }
 
+  boolean usesExactPhotonCamera(PhotonCamera camera) {
+    return cameraSource instanceof PhotonCameraSource photonSource
+        && photonSource.camera() == camera;
+  }
+
   @Override
   public void markVisionInitializationComplete() {
     if (!visionInitializationComplete) {
