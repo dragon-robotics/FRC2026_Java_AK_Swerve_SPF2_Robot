@@ -59,6 +59,9 @@ Preserve these `spitfire-v2` values:
 - Stop: 0 V.
 - Open-loop ramp period: 0.5 seconds.
 - Torque-current FOC maximum absolute duty cycle: 1.0 (100%).
+- Torque-current FOC deadband: 1 A.
+- Torque-current FOC coast override during neutral: enabled.
+- Torque-current FOC update frequency: 100 Hz.
 - Lead inversion: counterclockwise-positive.
 - Follower inversion: clockwise-positive.
 - Neutral mode: coast.
@@ -88,8 +91,9 @@ to the configured stator current limit.
 The real implementation applies the preserved current, voltage, ramp, neutral-mode, and inversion
 settings. It retries TalonFX configuration through the repository's existing `PhoenixUtil`
 mechanism, configures the second controller as a hardware follower, sends torque commands with
-Phoenix 6 `TorqueCurrentFOC.withMaxAbsDutyCycle(1.0)`, reads both controllers' telemetry, debounces
-communication loss, and reduces unused CAN traffic.
+Phoenix 6 `TorqueCurrentFOC` configured with `withMaxAbsDutyCycle(1.0)`, `withDeadband(1.0)`,
+`withOverrideCoastDurNeutral(true)`, and `withUpdateFreqHz(100)`. It reads both controllers'
+telemetry, debounces communication loss, and reduces unused CAN traffic.
 
 ### `HopperIOSim`
 
@@ -152,6 +156,7 @@ Focused tests use a recording fake `HopperIO` and verify:
 - Desired state changes only become current after periodic processing.
 - Voltage, percentage, and torque-current FOC direct controls forward correctly.
 - Torque-current FOC requests use a maximum absolute duty cycle of 1.0.
+- Torque-current FOC requests use a 1 A deadband, coast while neutral, and update at 100 Hz.
 - Null desired states are rejected.
 
 Simulation tests verify output clamping and that commanded voltage and torque current produce motor
