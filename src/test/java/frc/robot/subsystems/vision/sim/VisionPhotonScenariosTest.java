@@ -1,6 +1,7 @@
 package frc.robot.subsystems.vision.sim;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import edu.wpi.first.hal.HAL;
@@ -8,6 +9,7 @@ import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.simulation.SimHooks;
+import frc.robot.subsystems.vision.VisionIO.PoseSolveStrategy;
 import frc.robot.subsystems.vision.VisionRuntimeConfig;
 import frc.robot.subsystems.vision.VisionRuntimeConfig.StartupStrategyOrder;
 import frc.robot.subsystems.vision.VisionRuntimeConfig.TagDistanceConfidenceMode;
@@ -78,11 +80,46 @@ class VisionPhotonScenariosTest {
       ScenarioMetrics rotating =
           harness.runMoving(
               "rotation", pose(4.407, 0.650, 90.0), 0.0, 0.40, WARMUP_CYCLES, MEASURED_CYCLES);
+      Pose2d independentTruthPose = pose(4.407, 7.279, -90.0);
+      Pose2d offsetEstimatorPose = pose(5.657, 7.279, -55.0);
+      ScenarioMetrics independentTruth =
+          harness.runStationaryWithEstimatorOffset(
+              "independent-truth",
+              independentTruthPose,
+              offsetEstimatorPose,
+              WARMUP_CYCLES,
+              MEASURED_CYCLES);
 
       assertScenarioCovered(translating);
       assertScenarioCovered(rotating);
+      assertScenarioCovered(independentTruth);
+      assertAll(
+          "detections and capture scoring follow truth rather than the offset estimator",
+          () ->
+              assertEquals(
+                  1.25,
+                  independentTruthPose
+                      .getTranslation()
+                      .getDistance(offsetEstimatorPose.getTranslation()),
+                  1e-12),
+          () -> assertTrue(independentTruth.meanCaptureTimeErrorMeters() < 0.25),
+          () -> assertTrue(independentTruth.maxCaptureTimeErrorMeters() < 0.50));
+      assertAll(
+          "startup strategy stays active for moving scenarios",
+          () ->
+              assertTrue(
+                  translating.emittedStrategyCount(PoseSolveStrategy.CONSTRAINED_SOLVEPNP) > 0),
+          () ->
+              assertEquals(
+                  0, translating.emittedStrategyCount(PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE)),
+          () ->
+              assertTrue(rotating.emittedStrategyCount(PoseSolveStrategy.CONSTRAINED_SOLVEPNP) > 0),
+          () ->
+              assertEquals(
+                  0, rotating.emittedStrategyCount(PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE)));
       System.out.println(translating);
       System.out.println(rotating);
+      System.out.println(independentTruth);
     }
   }
 

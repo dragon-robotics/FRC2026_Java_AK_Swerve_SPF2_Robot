@@ -10,8 +10,11 @@ import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.simulation.SimHooks;
+import frc.robot.subsystems.vision.VisionIO.PoseSolveStrategy;
 import frc.robot.subsystems.vision.VisionIO.VisionIOInputs;
+import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
@@ -30,6 +33,8 @@ public final class VisionSimulationHarness implements AutoCloseable {
   private final Vision vision;
   private final HeadingProvider headingProvider = new HeadingProvider();
   private final Set<Double> selectedTimestamps = new HashSet<>();
+  private final EnumMap<PoseSolveStrategy, Integer> emittedStrategyCounts =
+      new EnumMap<>(PoseSolveStrategy.class);
 
   private Pose2d truthPose;
   private Pose2d estimatorPose;
@@ -70,9 +75,9 @@ public final class VisionSimulationHarness implements AutoCloseable {
             () -> false,
             Timer::getFPGATimestamp,
             owner::update,
-            true,
+            false,
             cameraIO);
-    resetScenario(initialTruth, 0.0, 0.0);
+    resetScenario(initialTruth, initialTruth, 0.0, 0.0);
   }
 
   /** Runs one Vision cycle against existing adapters and records owner-hook/read ordering. */
@@ -125,6 +130,11 @@ public final class VisionSimulationHarness implements AutoCloseable {
     return new HookOrderMetrics(owner.updateCount(), firstCameraRead.get());
   }
 
+  public static boolean usesExactOwnedCamera(
+      VisionSimulation owner, VisionIOPhotonVisionSim adapter) {
+    return adapter.usesExactOwnedCamera(owner);
+  }
+
   /** Runs one normal Vision loop after advancing FPGA simulation time by 20 ms. */
   public void periodic() {
     advanceState();
@@ -152,6 +162,11 @@ public final class VisionSimulationHarness implements AutoCloseable {
         measuredCycles);
   }
 
+  public ScenarioMetrics runStationaryWithEstimatorOffset(
+      String name, Pose2d truthPose, Pose2d estimatorPose, int warmupCycles, int measuredCycles) {
+    return runScenario(name, truthPose, estimatorPose, 0.0, 0.0, warmupCycles, measuredCycles);
+  }
+
   public long ownerUpdateCount() {
     return owner.updateCount();
   }
@@ -175,7 +190,26 @@ public final class VisionSimulationHarness implements AutoCloseable {
       double angularVelocityRadPerSecond,
       int warmupCycles,
       int measuredCycles) {
-    resetScenario(start, linearVelocityMetersPerSecond, angularVelocityRadPerSecond);
+    return runScenario(
+        name,
+        start,
+        start,
+        linearVelocityMetersPerSecond,
+        angularVelocityRadPerSecond,
+        warmupCycles,
+        measuredCycles);
+  }
+
+  private ScenarioMetrics runScenario(
+      String name,
+      Pose2d truthStart,
+      Pose2d estimatorStart,
+      double linearVelocityMetersPerSecond,
+      double angularVelocityRadPerSecond,
+      int warmupCycles,
+      int measuredCycles) {
+    resetScenario(
+        truthStart, estimatorStart, linearVelocityMetersPerSecond, angularVelocityRadPerSecond);
     for (int cycle = 0; cycle < warmupCycles; cycle++) {
       periodic();
     }
@@ -195,13 +229,17 @@ public final class VisionSimulationHarness implements AutoCloseable {
         acceptedConsumerCalls,
         selectedTimestamps.size(),
         meanError,
-        maximumError);
+        maximumError,
+        emittedStrategyCounts);
   }
 
   private void resetScenario(
-      Pose2d start, double linearVelocityMetersPerSecond, double angularVelocityRadPerSecond) {
-    truthPose = new Pose2d(start.getTranslation(), start.getRotation());
-    estimatorPose = new Pose2d(start.getTranslation(), start.getRotation());
+      Pose2d truthStart,
+      Pose2d estimatorStart,
+      double linearVelocityMetersPerSecond,
+      double angularVelocityRadPerSecond) {
+    truthPose = new Pose2d(truthStart.getTranslation(), truthStart.getRotation());
+    estimatorPose = new Pose2d(estimatorStart.getTranslation(), estimatorStart.getRotation());
     chassisSpeeds =
         new ChassisSpeeds(linearVelocityMetersPerSecond, 0.0, angularVelocityRadPerSecond);
     truthHistory.clear();
@@ -217,6 +255,7 @@ public final class VisionSimulationHarness implements AutoCloseable {
     captureErrorSumMeters = 0.0;
     maxCaptureErrorMeters = Double.NEGATIVE_INFINITY;
     selectedTimestamps.clear();
+    emittedStrategyCounts.clear();
   }
 
   private void advanceState() {
@@ -263,7 +302,16 @@ public final class VisionSimulationHarness implements AutoCloseable {
       int acceptedConsumerCalls,
       int distinctSelectedTimestamps,
       double meanCaptureTimeErrorMeters,
-      double maxCaptureTimeErrorMeters) {}
+      double maxCaptureTimeErrorMeters,
+      Map<PoseSolveStrategy, Integer> emittedStrategyCounts) {
+    public ScenarioMetrics {
+      emittedStrategyCounts = Map.copyOf(emittedStrategyCounts);
+    }
+
+    public int emittedStrategyCount(PoseSolveStrategy strategy) {
+      return emittedStrategyCounts.getOrDefault(strategy, 0);
+    }
+  }
 
   public record HookOrderMetrics(long ownerUpdateCount, long firstCameraReadOwnerUpdateCount) {}
 
@@ -285,8 +333,14 @@ public final class VisionSimulationHarness implements AutoCloseable {
         firstCameraReadOwnerUpdateCount = owner.updateCount();
       }
       delegate.updateInputs(inputs);
-      if (measuring && inputs.getPoseObservations().length > 0) {
-        detectionCount++;
+      if (measuring) {
+        VisionIO.PoseObservation[] observations = inputs.getPoseObservations();
+        if (observations.length > 0) {
+          detectionCount++;
+        }
+        for (VisionIO.PoseObservation observation : observations) {
+          emittedStrategyCounts.merge(observation.strategy(), 1, Integer::sum);
+        }
       }
     }
 

@@ -137,6 +137,13 @@ public final class VisionSimulation implements AutoCloseable {
     return List.copyOf(diagnostics);
   }
 
+  boolean hasExactCameraInstance(PhotonCamera camera) {
+    RegisteredCamera registered = cameras.get(camera.getName());
+    return registered != null
+        && registered.camera() == camera
+        && registered.cameraSim().getCamera() == camera;
+  }
+
   @Override
   public void close() {
     if (closed) {
