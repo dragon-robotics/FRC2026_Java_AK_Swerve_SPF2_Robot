@@ -29,6 +29,10 @@ import frc.robot.subsystems.hopper.Hopper;
 import frc.robot.subsystems.hopper.HopperIO;
 import frc.robot.subsystems.hopper.HopperIOSim;
 import frc.robot.subsystems.hopper.HopperIOTalonFX;
+import frc.robot.subsystems.shooter.Shooter;
+import frc.robot.subsystems.shooter.ShooterIO;
+import frc.robot.subsystems.shooter.ShooterIOSim;
+import frc.robot.subsystems.shooter.ShooterIOTalonFX;
 import frc.robot.util.constants.FieldConstants.FieldZones;
 import frc.robot.util.constants.OperatorConstants;
 import java.util.Optional;
@@ -44,6 +48,7 @@ public class RobotContainer {
   // Subsystems
   private final Drive drive;
   private final Hopper hopper;
+  private final Shooter shooter;
 
   // Default-drive state
   private Optional<Rotation2d> currentDriveHeading = Optional.empty();
@@ -99,6 +104,7 @@ public class RobotContainer {
     }
 
     hopper = new Hopper(createHopperIO(Constants.currentMode));
+    shooter = new Shooter(createShooterIO(Constants.currentMode));
 
     // Set up auto routines
     autoChooser = new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser());
@@ -181,6 +187,14 @@ public class RobotContainer {
       case REAL -> new HopperIOTalonFX();
       case SIM -> new HopperIOSim();
       case REPLAY -> new HopperIO.NoOp();
+    };
+  }
+
+  static ShooterIO createShooterIO(Constants.Mode mode) {
+    return switch (mode) {
+      case REAL -> new ShooterIOTalonFX();
+      case SIM -> new ShooterIOSim();
+      case REPLAY -> new ShooterIO.NoOp();
     };
   }
 }
