@@ -62,6 +62,10 @@ Preserve these `spitfire-v2` values:
 - Torque-current FOC deadband: 1 A.
 - Torque-current FOC coast override during neutral: enabled.
 - Torque-current FOC update frequency: 100 Hz.
+- Voltage and duty-cycle control-request update frequency: 100 Hz.
+- Position, velocity, applied-voltage, and stator-current status frequency: 50 Hz.
+- Temperature status frequency: 4 Hz.
+- Unspecified TalonFX status frequency after bus optimization: 4 Hz.
 - Lead inversion: counterclockwise-positive.
 - Follower inversion: clockwise-positive.
 - Neutral mode: coast.
@@ -93,7 +97,11 @@ settings. It retries TalonFX configuration through the repository's existing `Ph
 mechanism, configures the second controller as a hardware follower, sends torque commands with
 Phoenix 6 `TorqueCurrentFOC` configured with `withMaxAbsDutyCycle(1.0)`, `withDeadband(1.0)`,
 `withOverrideCoastDurNeutral(true)`, and `withUpdateFreqHz(100)`. It reads both controllers'
-telemetry, debounces communication loss, and reduces unused CAN traffic.
+telemetry, debounces communication loss, and reduces CAN traffic. Voltage and duty-cycle requests
+also update at 100 Hz. Position, velocity, applied voltage, and stator current update at 50 Hz;
+temperature updates at 4 Hz. After setting those explicit frequencies, the implementation calls
+`ParentDevice.optimizeBusUtilizationForAll(4.0, leadMotor, followerMotor)` so every unspecified
+status signal also updates at 4 Hz.
 
 ### `HopperIOSim`
 
@@ -157,6 +165,9 @@ Focused tests use a recording fake `HopperIO` and verify:
 - Voltage, percentage, and torque-current FOC direct controls forward correctly.
 - Torque-current FOC requests use a maximum absolute duty cycle of 1.0.
 - Torque-current FOC requests use a 1 A deadband, coast while neutral, and update at 100 Hz.
+- Voltage and duty-cycle requests update at 100 Hz.
+- Required mechanism status signals update at 50 Hz, temperature at 4 Hz, and unspecified status
+  signals at 4 Hz after bus optimization.
 - Null desired states are rejected.
 
 Simulation tests verify output clamping and that commanded voltage and torque current produce motor
