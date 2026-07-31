@@ -18,6 +18,7 @@ import frc.robot.subsystems.vision.VisionConsensus.TemporalSelection;
 import frc.robot.subsystems.vision.VisionIO.PoseObservation;
 import frc.robot.subsystems.vision.VisionIO.PoseObservationType;
 import frc.robot.subsystems.vision.VisionIO.PoseSolveStrategy;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -152,8 +153,39 @@ class VisionConsensusTest {
   }
 
   @Test
+  void temporalComparatorPrefersLowerStdDevBeforeTheLexicographicallyLowerCameraVector()
+      throws ReflectiveOperationException {
+    List<Candidate> lowerStandardDeviation =
+        List.of(
+            candidate(5, "wide-right", 99.960, 0.0, 0.0, 0.05, 0.8),
+            candidate(6, "wide-back", 100.000, 1.0, 0.0, 0.05, 0.9));
+    List<Candidate> lexicographicallyLowerButNoisier =
+        List.of(
+            candidate(1, "front-left", 99.960, 2.0, 0.0, 0.20, 1.0),
+            candidate(2, "front-right", 100.000, 3.0, 0.0, 0.20, 1.1));
+
+    assertTrue(
+        compareTemporalWindows(lowerStandardDeviation, lexicographicallyLowerButNoisier) > 0);
+  }
+
+  @Test
+  void temporalComparatorPrefersTheLexicographicallyLowerSortedCameraVectorAfterQualityTies()
+      throws ReflectiveOperationException {
+    List<Candidate> lexicographicallyLower =
+        List.of(
+            candidate(1, "front-left", 99.960, 0.0, 0.0, 0.10, 0.4),
+            candidate(5, "wide-right", 100.000, 1.0, 0.0, 0.10, 0.5));
+    List<Candidate> lexicographicallyHigher =
+        List.of(
+            candidate(2, "front-right", 99.960, 2.0, 0.0, 0.10, 0.6),
+            candidate(3, "wide-left", 100.000, 3.0, 0.0, 0.10, 0.7));
+
+    assertTrue(compareTemporalWindows(lexicographicallyLower, lexicographicallyHigher) > 0);
+  }
+
+  @Test
   void spatialSelectionReturnsTheOnlyOriginalCandidateWithoutChangingItsMeasurement() {
-    Candidate candidate = candidate(3, 99.990, 2.0, 4.0, 0.37);
+    Candidate candidate = candidate(3, "rear-precision", 99.990, 2.0, 4.0, 0.37, 1.75);
 
     Candidate winner = VisionConsensus.selectSpatialConsensus(List.of(candidate)).orElseThrow();
 
@@ -161,8 +193,10 @@ class VisionConsensusTest {
     assertSame(candidate.observation(), winner.observation());
     assertSame(candidate.visionPose(), winner.visionPose());
     assertSame(candidate.standardDeviations(), winner.standardDeviations());
+    assertEquals("rear-precision", winner.cameraName());
     assertEquals(99.990, winner.observation().timestampSeconds(), 0.0);
     assertEquals(0.37, winner.standardDeviations().get(0, 0), 0.0);
+    assertEquals(1.75, winner.innovationMeters(), 0.0);
   }
 
   @Test
@@ -235,10 +269,12 @@ class VisionConsensusTest {
 
   private static Candidate candidate(
       int cameraIndex,
+      String cameraName,
       double timestampSeconds,
       double xMeters,
       double yMeters,
-      double linearStdDevMeters) {
+      double linearStdDevMeters,
+      double innovationMeters) {
     PoseObservation observation =
         new PoseObservation(
             timestampSeconds,
@@ -253,11 +289,35 @@ class VisionConsensusTest {
         VecBuilder.fill(linearStdDevMeters, linearStdDevMeters, VisionConstants.HEADING_STD_DEV);
     return new Candidate(
         cameraIndex,
-        "camera-" + cameraIndex,
+        cameraName,
         observation,
         new Pose2d(xMeters, yMeters, Rotation2d.kZero),
         standardDeviations,
+        innovationMeters);
+  }
+
+  private static Candidate candidate(
+      int cameraIndex,
+      double timestampSeconds,
+      double xMeters,
+      double yMeters,
+      double linearStdDevMeters) {
+    return candidate(
+        cameraIndex,
+        "camera-" + cameraIndex,
+        timestampSeconds,
+        xMeters,
+        yMeters,
+        linearStdDevMeters,
         0.0);
+  }
+
+  private static int compareTemporalWindows(List<Candidate> first, List<Candidate> second)
+      throws ReflectiveOperationException {
+    Method method =
+        VisionConsensus.class.getDeclaredMethod("compareTemporalWindows", List.class, List.class);
+    method.setAccessible(true);
+    return (int) method.invoke(null, first, second);
   }
 
   private static void assertRejected(
