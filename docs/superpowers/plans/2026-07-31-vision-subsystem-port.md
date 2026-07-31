@@ -205,22 +205,21 @@ Defaults are `8.0`, `true`, `HYBRID`, no explicit order, `ALL_TAG_AVERAGE`, and 
   1. `PoseObservation` copies tag IDs in its constructor and accessor.
   2. `Accepted` input arrays can be changed without mutating a previously constructed observation.
   3. `VisionIO.NoOp("camera")` always overwrites camera name, disconnected state, zero target angles, and empty observation/tag arrays.
-  4. `VisionIOInputsAutoLogged` round-trips a `PoseObservation[]` containing `Pose3d`, both enums, and nested `int[]` through a real `LogTable`.
+  4. `VisionIOInputsAutoLogged` losslessly round-trips a `PoseObservation[]` containing `Pose3d`, both enums, and nested `int[]` through a real `LogTable` using supported `PoseObservationLog[]` fields plus an `int[][]` sidecar. Mismatched or missing sidecar rows reconstruct as empty arrays without corrupting other observations.
 
 Use this round-trip shape so AdvantageKit serialization is proven before the rest of the port depends on it:
 
 ```java
 VisionIOInputsAutoLogged source = new VisionIOInputsAutoLogged();
 source.cameraName = "AprilTagPoseEstCameraF";
-source.poseObservations = new PoseObservation[] {observation};
-source.tagIds = new int[] {3, 7};
+source.setPoseObservations(new PoseObservation[] {observation});
 LogTable table = new LogTable(0);
 source.toLog(table);
 
 VisionIOInputsAutoLogged replayed = new VisionIOInputsAutoLogged();
 replayed.fromLog(table);
-assertEquals(observation.strategy(), replayed.poseObservations[0].strategy());
-assertArrayEquals(new int[] {3, 7}, replayed.poseObservations[0].tagIds());
+assertEquals(observation.strategy(), replayed.getPoseObservations()[0].strategy());
+assertArrayEquals(new int[] {3, 7}, replayed.getPoseObservations()[0].tagIds());
 ```
 
 The IO contract is:
@@ -256,13 +255,24 @@ record PoseObservation(
     PoseSolveStrategy strategy,
     int[] tagIds) {}
 
+record PoseObservationLog(
+    double timestampSeconds,
+    Pose3d pose,
+    double ambiguity,
+    int tagCount,
+    double confidenceDistanceMeters,
+    PoseObservationType type,
+    PoseSolveStrategy strategy) {}
+
 @AutoLog
 class VisionIOInputs {
   public String cameraName = "";
   public boolean connected = false;
   public TargetObservation latestTargetObservation = TargetObservation.NONE;
-  public PoseObservation[] poseObservations = new PoseObservation[0];
-  public int[] tagIds = new int[0];
+  public PoseObservationLog[] poseObservationLogs = new PoseObservationLog[0];
+  public int[][] poseObservationTagIds = new int[0][];
+  public void setPoseObservations(PoseObservation[] poseObservations) {}
+  public PoseObservation[] getPoseObservations() { return new PoseObservation[0]; }
 }
 
 String getCameraName();
@@ -282,9 +292,9 @@ Expected: `compileTestJava` fails because the vision contract classes and genera
 
 - [ ] Add `vendordeps/photonlib.json` byte-for-byte from reference commit `70cce7c` and implement only the constants, runtime parser, and IO types. Use `List.copyOf`, canonical record constructors, and copied array accessors to make each returned value immutable.
 
-- [ ] Rerun the focused gate. Expected: `BUILD SUCCESSFUL`, including the real AdvantageKit record-array replay round trip.
+- [ ] Rerun the focused gate. Expected: `BUILD SUCCESSFUL`, including the real lossless AdvantageKit record-array-and-sidecar replay round trip.
 
-- [ ] Inspect generated `build/generated/sources/annotationProcessor/java/main/frc/robot/subsystems/vision/VisionIOInputsAutoLogged.java` and confirm it uses `LogTable.put/get` for the record array rather than discarding it.
+- [ ] Inspect generated `build/generated/sources/annotationProcessor/java/main/frc/robot/subsystems/vision/VisionIOInputsAutoLogged.java` and confirm it uses `LogTable.put/get` for the supported record array and `int[][]` sidecar rather than passing `PoseObservation[]` to `RecordStruct`.
 
 - [ ] Commit only Task 1:
 

@@ -124,8 +124,14 @@ existing annotation processor.
 - Camera name.
 - Camera connection state.
 - Latest best-target yaw and pitch.
-- All pose observations decoded during the update.
-- Deduplicated IDs of tags contributing to successfully emitted observations during the update.
+- All pose observations decoded during the update, losslessly stored as AutoLog-compatible
+  `PoseObservationLog[]` fields plus a parallel `int[][]` tag-ID sidecar.
+
+`PoseObservation` remains the public/runtime immutable record with variable-length defensively
+copied tag IDs. AdvantageKit 26.0.2 record structs cannot encode an array component, so
+`VisionIOInputs.setPoseObservations()` splits runtime observations into the supported log record
+and sidecar; `getPoseObservations()` reconstructs them by index. Missing or mismatched sidecar rows
+become empty arrays without altering the other observation fields.
 
 Every `VisionIO` also exposes an immutable configured camera name outside the replayed input
 snapshot. `Vision` uses that fixed identity to select `Logger.processInputs()` keys before replay
