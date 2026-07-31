@@ -13,6 +13,7 @@ import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
 import com.ctre.phoenix6.signals.StaticFeedforwardSignValue;
 import edu.wpi.first.math.interpolation.InterpolatingDoubleTreeMap;
+import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Voltage;
@@ -41,6 +42,14 @@ final class ShooterConstants {
   static final Voltage KICKER_SHOOT_VOLTAGE = Volts.of(12.0);
   static final InterpolatingDoubleTreeMap FLYWHEEL_RPM_MAP = new InterpolatingDoubleTreeMap();
   static final InterpolatingDoubleTreeMap HOOD_ROTATIONS_MAP = new InterpolatingDoubleTreeMap();
+  static final DCMotor FLYWHEEL_SIM_MOTOR = DCMotor.getKrakenX60Foc(1);
+  static final DCMotor KICKER_SIM_MOTOR = DCMotor.getKrakenX60Foc(1);
+  static final DCMotor HOOD_SIM_MOTOR = DCMotor.getKrakenX44Foc(1);
+  static final double SIM_GEARING = 1.0;
+  static final double FLYWHEEL_SIM_MOI = 0.004;
+  static final double KICKER_SIM_MOI = 0.003;
+  static final double HOOD_SIM_MOI = 0.01;
+  static final double LOOP_PERIOD_SECONDS = 0.02;
 
   static {
     addSetpoint(5.0, 2400.0, 0.0);
