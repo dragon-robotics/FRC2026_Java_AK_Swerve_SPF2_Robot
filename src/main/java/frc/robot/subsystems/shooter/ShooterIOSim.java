@@ -85,28 +85,28 @@ public class ShooterIOSim implements ShooterIO {
     inputs.flywheelLeadConnected = true;
     inputs.flywheelLeadPositionRotations = flywheelLeadSim.getAngularPositionRotations();
     inputs.flywheelLeadVelocityRpm = flywheelLeadSim.getAngularVelocityRPM();
-    inputs.flywheelLeadAppliedVolts = flywheelLeadVolts;
+    inputs.flywheelLeadAppliedVolts = flywheelLeadSim.getInputVoltage();
     inputs.flywheelLeadCurrentAmps = Math.abs(flywheelLeadSim.getCurrentDrawAmps());
     inputs.flywheelLeadTempCelsius = 0.0;
 
     inputs.flywheelFollowerConnected = true;
     inputs.flywheelFollowerPositionRotations = flywheelFollowerSim.getAngularPositionRotations();
     inputs.flywheelFollowerVelocityRpm = flywheelFollowerSim.getAngularVelocityRPM();
-    inputs.flywheelFollowerAppliedVolts = flywheelFollowerVolts;
+    inputs.flywheelFollowerAppliedVolts = flywheelFollowerSim.getInputVoltage();
     inputs.flywheelFollowerCurrentAmps = Math.abs(flywheelFollowerSim.getCurrentDrawAmps());
     inputs.flywheelFollowerTempCelsius = 0.0;
 
     inputs.kickerConnected = true;
     inputs.kickerPositionRotations = kickerSim.getAngularPositionRotations();
     inputs.kickerVelocityRpm = kickerSim.getAngularVelocityRPM();
-    inputs.kickerAppliedVolts = kickerVolts;
+    inputs.kickerAppliedVolts = kickerSim.getInputVoltage();
     inputs.kickerCurrentAmps = Math.abs(kickerSim.getCurrentDrawAmps());
     inputs.kickerTempCelsius = 0.0;
 
     inputs.hoodConnected = true;
     inputs.hoodPositionRotations = hoodSim.getAngularPositionRotations();
     inputs.hoodVelocityRpm = hoodSim.getAngularVelocityRPM();
-    inputs.hoodAppliedVolts = hoodVolts;
+    inputs.hoodAppliedVolts = hoodSim.getInputVoltage();
     inputs.hoodCurrentAmps = Math.abs(hoodSim.getCurrentDrawAmps());
     inputs.hoodTempCelsius = 0.0;
   }

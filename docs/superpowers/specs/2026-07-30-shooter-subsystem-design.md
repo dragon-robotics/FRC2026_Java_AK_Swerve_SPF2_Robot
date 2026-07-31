@@ -212,7 +212,11 @@ The public state enum contains:
 
 `setDesiredState()` rejects null. Requests for STOP, PREPFUEL, or SHOOT move the current state
 through TRANSITION before the requested steady state. Startup explicitly runs the transition to
-STOP so all four outputs receive safe commands on the first periodic update.
+STOP so all four outputs receive safe commands on the first periodic update. Changing into STOP
+also traverses TRANSITION and commands those safe outputs. Requesting STOP while the shooter is
+already in steady STOP does not resend state-machine commands; direct-control outputs therefore
+remain latched until another command changes them. Future commands that use direct controls must
+explicitly command safe zero outputs when ending.
 
 STOP behavior:
 
