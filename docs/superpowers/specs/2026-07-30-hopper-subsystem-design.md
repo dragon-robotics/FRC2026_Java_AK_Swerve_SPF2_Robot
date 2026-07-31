@@ -11,7 +11,7 @@ adapting the implementation to this repository's AdvantageKit IO architecture.
 Included:
 
 - Hopper state machine with stop, index-to-shooter, and index-to-intake states.
-- Direct voltage, duty-cycle percentage, and RPM control methods from the reference subsystem.
+- Direct voltage, duty-cycle percentage, and torque-current FOC control methods.
 - Real TalonFX IO for a lead/follower roller pair.
 - Physics simulation IO for both roller motors.
 - Replay-safe no-op IO.
@@ -31,7 +31,7 @@ Excluded:
 
 The hopper will use a dedicated AdvantageKit IO boundary rather than copying the source
 repository's generic `MotorIO` framework. `HopperIO` exposes telemetry for both motors and the three
-control modes used by `Hopper`: voltage, duty-cycle percentage, and velocity in RPM.
+control modes used by `Hopper`: voltage, duty-cycle percentage, and torque-current FOC.
 
 `HopperIOTalonFX` owns and configures both TalonFX controllers. The lead motor receives commands and
 the second motor follows it. `HopperIOSim` models both motors and retains the commanded control mode
@@ -78,22 +78,24 @@ The `@AutoLog` input snapshot records, separately for lead and follower:
 - Stator current in amps.
 - Temperature in Celsius.
 
-Control methods accept voltage, duty-cycle percentage, or RPM. Implementations clamp percentage to
-the valid `[-1.0, 1.0]` range and voltage to the configured maximum.
+Control methods accept voltage, duty-cycle percentage, or torque current. Implementations clamp
+percentage to the valid `[-1.0, 1.0]` range, voltage to the configured maximum, and torque current
+to the configured stator current limit.
 
 ### `HopperIOTalonFX`
 
 The real implementation applies the preserved current, voltage, ramp, neutral-mode, and inversion
 settings. It retries TalonFX configuration through the repository's existing `PhoenixUtil`
-mechanism, configures the second controller as a hardware follower, reads both controllers'
-telemetry, debounces communication loss, and reduces unused CAN traffic.
+mechanism, configures the second controller as a hardware follower, sends torque commands with
+Phoenix 6 `TorqueCurrentFOC`, reads both controllers' telemetry, debounces communication loss, and
+reduces unused CAN traffic.
 
 ### `HopperIOSim`
 
 The simulation implementation uses two `DCMotorSim` models driven by the same requested hopper
-command. Voltage and percentage commands are open-loop. RPM commands use a small simulation-only
-PID controller. Each update advances both models by 20 ms and publishes the same input fields as
-real hardware.
+command. Voltage and percentage commands are open-loop. Torque-current commands are converted
+through the motor model into equivalent simulated torque. Each update advances both models by 20 ms
+and publishes the same input fields as real hardware.
 
 ### `Hopper`
 
@@ -112,8 +114,9 @@ On state entry:
 - INDEX_TO_SHOOTER commands +12 V.
 - INDEX_TO_INTAKE commands -12 V.
 
-Direct control methods forward voltage, percentage, and RPM requests to IO. State transitions remain
-entry-based, so a direct request remains active until a different state is requested.
+Direct control methods forward voltage, percentage, and torque-current FOC requests to IO. State
+transitions remain entry-based, so a direct request remains active until a different state is
+requested.
 
 `periodic()` updates and logs inputs before handling a state transition. It also logs current and
 desired state names through AdvantageKit outputs.
@@ -146,10 +149,9 @@ Focused tests use a recording fake `HopperIO` and verify:
 - Each state sends the correct configured voltage.
 - Repeated periodic calls in the same state do not resend commands.
 - Desired state changes only become current after periodic processing.
-- Voltage, percentage, and RPM direct controls forward correctly.
+- Voltage, percentage, and torque-current FOC direct controls forward correctly.
 - Null desired states are rejected.
 
-Simulation tests verify output clamping and that commanded voltage produces motor motion. Full
-verification runs focused hopper tests, all project tests, compilation, Spotless checks, and
-`git diff --check`.
-
+Simulation tests verify output clamping and that commanded voltage and torque current produce motor
+motion. Full verification runs focused hopper tests, all project tests, compilation, Spotless
+checks, and `git diff --check`.
