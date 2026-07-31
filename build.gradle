@@ -99,8 +99,23 @@ dependencies {
 }
 
 test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'vision-sim'
+    }
     systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
+}
+
+def visionSimulationTest = tasks.register('visionSimulationTest', Test) {
+    group = 'verification'
+    description = 'Runs isolated PhotonVision JNI and global-state scenarios.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'vision-sim'
+    }
+    systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
+    forkEvery = 1
+    maxParallelForks = 1
 }
 
 // Simulation configuration (e.g. environment variables).
@@ -125,6 +140,8 @@ jar {
 deployArtifact.jarTask = jar
 wpi.java.configureExecutableTasks(jar)
 wpi.java.configureTestTasks(test)
+wpi.java.configureTestTasks(visionSimulationTest.get())
+check.dependsOn(visionSimulationTest)
 
 // Configure string concat to always inline compile
 tasks.withType(JavaCompile) {

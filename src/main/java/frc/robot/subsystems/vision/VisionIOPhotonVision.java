@@ -81,10 +81,18 @@ public class VisionIOPhotonVision implements VisionIO {
       CameraConfig cameraConfig,
       VisionRuntimeConfig runtimeConfig,
       HeadingProvider headingProvider) {
+    this(cameraConfig, runtimeConfig, new PhotonCamera(cameraConfig.name()), headingProvider);
+  }
+
+  VisionIOPhotonVision(
+      CameraConfig cameraConfig,
+      VisionRuntimeConfig runtimeConfig,
+      PhotonCamera camera,
+      HeadingProvider headingProvider) {
     this(
         cameraConfig,
         runtimeConfig,
-        new PhotonCameraSource(new PhotonCamera(cameraConfig.name())),
+        new PhotonCameraSource(camera),
         new PhotonPoseEstimator(FieldConstants.APTAG_FIELD_LAYOUT, cameraConfig.robotToCamera()),
         headingProvider);
   }

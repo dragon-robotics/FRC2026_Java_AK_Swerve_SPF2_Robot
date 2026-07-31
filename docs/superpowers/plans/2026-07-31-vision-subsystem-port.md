@@ -927,11 +927,14 @@ git -c safe.directory='C:/FRC_Software/FRC 2026 Software/Projects/FRC2026_Java_A
 **Files:**
 
 - Modify: `build.gradle`
+- Modify: `src/main/java/frc/robot/subsystems/vision/VisionIOPhotonVision.java`
 - Create: `src/main/java/frc/robot/subsystems/vision/VisionSimulation.java`
 - Create: `src/main/java/frc/robot/subsystems/vision/VisionIOPhotonVisionSim.java`
 - Create: `src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationHarness.java`
 - Create: `src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationLifecycleTest.java`
 - Create: `src/test/java/frc/robot/subsystems/vision/sim/VisionPhotonScenariosTest.java`
+- Modify: `docs/superpowers/specs/2026-07-31-vision-subsystem-port-design.md`
+- Modify: `docs/superpowers/plans/2026-07-31-vision-subsystem-port.md`
 
 **Interfaces:**
 
@@ -980,16 +983,19 @@ Retain the existing `wpi.java.configureTestTasks(test)` call. Do not use class-n
 ```java
 public final class VisionSimulation implements AutoCloseable {
   public VisionSimulation(Supplier<Pose2d> poseSupplier);
-  VisionSimulation(String instanceName, Supplier<Pose2d> poseSupplier);
+  public VisionSimulation(String instanceName, Supplier<Pose2d> poseSupplier);
   void registerCamera(PhotonCamera camera, CameraConfig config);
   public void update();
   public void setPoseSupplier(Supplier<Pose2d> poseSupplier);
-  int cameraCount();
-  long updateCount();
+  public int cameraCount();
+  public long updateCount();
+  public List<CameraDiagnostics> cameraDiagnostics();
 }
 ```
 
-The production instance name is `main`; tests supply a unique name. The owner adds `FieldConstants.APTAG_FIELD_LAYOUT` once. It stores one pose supplier, four camera simulations, and closes every camera simulation. `VisionIOPhotonVisionSim(CameraConfig, VisionRuntimeConfig, HeadingProvider, VisionSimulation)` creates one `PhotonCamera`, passes it to the real decoder constructor, registers that same camera with the owner, and never calls `VisionSystemSim.update()`.
+The production instance name is `main`; tests supply a unique name through the public instance-name constructor. The owner adds `FieldConstants.APTAG_FIELD_LAYOUT` once. It stores one pose supplier, four camera simulations, and closes every camera simulation and camera. `VisionIOPhotonVision` adds a package-private constructor accepting an already-created `PhotonCamera` with the camera/runtime configuration and heading provider while leaving its public REAL constructor unchanged. `VisionIOPhotonVisionSim(CameraConfig, VisionRuntimeConfig, HeadingProvider, VisionSimulation)` creates one `PhotonCamera`, passes that exact camera to the real decoder constructor, registers the same instance with the owner, and never calls `VisionSystemSim.update()`.
+
+`CameraDiagnostics` is an immutable public snapshot containing the camera name, approved transform, resolution, geometric diagonal FOV, calibration error, FPS, and latency properties. Values come from the registered `PhotonCameraSim` property getters wherever exposed; calibration-error values and a deterministic seeded pixel-noise sample come from the single settings path that invokes `setCalibError`. PhotonLib 2026.3.4 expands the horizontal/vertical getters to the coordinates at `width`/`height`, one pixel beyond the final valid center, and its `getDiagFOV()` takes a hypot of angles. Derive the `72 degree` geometric diagonal from the actual registered intrinsics using valid `(resolution - 1)` pixel-center extents.
 
 - [ ] In `VisionSimulationLifecycleTest`, construct one owner and all four ordered adapters. Assert four registered camera names/transforms, no duplicate systems, and these exact properties for each camera:
 
@@ -1003,6 +1009,8 @@ The production instance name is `main`; tests supply a unique name. The owner ad
 | latency standard deviation | `5 ms` |
 
 Call all four IO `updateInputs` methods without calling owner `update`; assert `updateCount()==0`. Call the owner's `update()` once, read all four inputs, and assert `updateCount()==1`. Construct `Vision` with `owner::update` and assert one periodic call increments it by exactly one before the first camera read.
+
+Assert the diagnostics list is immutable, duplicate camera names are rejected, the seeded pixel-noise sample changes if `setCalibError(0.38, 0.1)` is missing or wrong, and the FOV regression fails if `resolution` is used in place of the valid `resolution - 1` pixel-center extent. Assert close clears the public camera count, is idempotent, and prevents later updates.
 
 - [ ] Build `VisionSimulationHarness` around an independent mutable truth pose, `TimeInterpolatableBuffer<Pose2d>` truth history, a separate estimator pose, recording measurement consumer, deterministic `20 ms` loop increments, and one shared owner. Detections must be generated from the truth supplier, never the estimator supplier.
 
