@@ -82,6 +82,8 @@ class VisionIOPhotonVisionTest {
         () ->
             assertEquals(
                 PoseObservationType.PHOTONVISION_MULTITAG_COPROCESSOR, observations[0].type()),
+        () -> assertEquals(PoseObservationType.PHOTONVISION, observations[1].type()),
+        () -> assertEquals(PoseObservationType.PHOTONVISION, observations[2].type()),
         () -> assertEquals(12.5, inputs.latestTargetObservation.tx().getDegrees(), 1e-12),
         () -> assertEquals(-6.25, inputs.latestTargetObservation.ty().getDegrees(), 1e-12),
         () -> assertArrayEquals(new int[] {1}, observations[0].tagIds()),
@@ -160,6 +162,28 @@ class VisionIOPhotonVisionTest {
   }
 
   @Test
+  void lastNullFrameClearsTargetAnglesWithoutDiscardingEarlierObservation() {
+    PhotonTrackedTarget target = target(16, 2.0, 0.1, 7.0, -6.0);
+    PhotonPipelineResult populated = result(5.75, target);
+    List<PhotonPipelineResult> frames = new ArrayList<>();
+    frames.add(populated);
+    frames.add(null);
+    FakeCameraSource source = new FakeCameraSource(List.of(frames));
+    ScriptedVisionIO io = scriptedIo(source, config(TagDistanceConfidenceMode.ALL_TAG_AVERAGE));
+    io.script(
+        populated, PoseSolveStrategy.LOWEST_AMBIGUITY, estimate(populated, Pose3d.kZero, target));
+    VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
+
+    io.updateInputs(inputs);
+
+    assertAll(
+        () -> assertEquals(Rotation2d.kZero, inputs.latestTargetObservation.tx()),
+        () -> assertEquals(Rotation2d.kZero, inputs.latestTargetObservation.ty()),
+        () -> assertEquals(1, inputs.getPoseObservations().length),
+        () -> assertArrayEquals(new int[] {16}, inputs.getTagIds()));
+  }
+
+  @Test
   void observationArithmeticFiltersIdsClampsAmbiguityAndUsesSelectedDistanceMode() {
     PhotonTrackedTarget negative = target(-1, 1.0, 0.9, 0.0, 0.0);
     PhotonTrackedTarget zero = target(0, 2.0, 0.8, 0.0, 0.0);
@@ -231,6 +255,31 @@ class VisionIOPhotonVisionTest {
   }
 
   @Test
+  void eligibleFrameWithNoSuccessfulSolverDoesNotContributeCameraTagIds() {
+    PhotonTrackedTarget target = target(17, 2.0, 0.1, 6.0, -4.0);
+    PhotonPipelineResult result = result(9.5, target);
+    FakeCameraSource source = new FakeCameraSource(List.of(List.of(result)));
+    ScriptedVisionIO io = scriptedIo(source, config(TagDistanceConfidenceMode.ALL_TAG_AVERAGE));
+    VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
+
+    io.updateInputs(inputs);
+
+    assertAll(
+        () -> assertEquals(6.0, inputs.latestTargetObservation.tx().getDegrees(), 1e-12),
+        () -> assertEquals(-4.0, inputs.latestTargetObservation.ty().getDegrees(), 1e-12),
+        () -> assertEquals(0, inputs.getPoseObservations().length),
+        () -> assertArrayEquals(new int[0], inputs.getTagIds()),
+        () ->
+            assertEquals(
+                List.of(
+                    PoseSolveStrategy.MULTI_TAG_PNP_ON_COPROCESSOR,
+                    PoseSolveStrategy.CONSTRAINED_SOLVEPNP,
+                    PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE,
+                    PoseSolveStrategy.LOWEST_AMBIGUITY),
+                io.attempts()));
+  }
+
+  @Test
   void directSolverAttemptsCallTheRequiredEstimatorEntryPoints() {
     PhotonPipelineResult result = result(10.0, target(11, 1.0, 0.1, 0.0, 0.0));
     RecordingEstimator estimator = new RecordingEstimator();
@@ -255,6 +304,18 @@ class VisionIOPhotonVisionTest {
     heading.heading = Optional.of(Rotation2d.fromDegrees(37.0));
     VisionIOPhotonVision io = io(new FakeCameraSource(List.of()), estimator, heading);
 
+    assertTrue(io.attemptStrategy(PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE, result).isPresent());
+    assertAll(
+        () -> assertEquals(List.of(11.25), heading.headingTimestamps),
+        () -> assertEquals(List.of(11.25), estimator.headingDataTimestamps),
+        () -> assertEquals(List.of(Rotation2d.fromDegrees(37.0)), estimator.headingData),
+        () -> assertEquals(List.of("heading", "trig"), estimator.events));
+
+    heading.angularRate = -1.0;
+    heading.headingTimestamps.clear();
+    estimator.headingDataTimestamps.clear();
+    estimator.headingData.clear();
+    estimator.events.clear();
     assertTrue(io.attemptStrategy(PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE, result).isPresent());
     assertAll(
         () -> assertEquals(List.of(11.25), heading.headingTimestamps),
