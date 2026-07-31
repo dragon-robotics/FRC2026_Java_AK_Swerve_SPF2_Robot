@@ -4,6 +4,8 @@ import static edu.wpi.first.units.Units.*;
 
 import com.ctre.phoenix6.configs.*;
 import com.ctre.phoenix6.signals.*;
+import edu.wpi.first.math.system.plant.DCMotor;
+import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Time;
 import edu.wpi.first.units.measure.Voltage;
@@ -37,6 +39,20 @@ final class IntakeConstants {
   static final double CONTROL_HZ = 100.0;
   static final double MECHANISM_HZ = 50.0;
   static final double SLOW_HZ = 4.0;
+  static final double ARM_FAST_KP = 14.0;
+  static final double ARM_SLOW_KP = 8.0;
+  static final double ARM_KG = 0.5;
+  static final DCMotor ROLLER_SIM_MOTOR = DCMotor.getKrakenX60Foc(1);
+  static final DCMotor ARM_SIM_MOTOR = DCMotor.getKrakenX60Foc(1);
+  static final double ROLLER_SIM_GEARING = 1.0;
+  static final double ROLLER_SIM_MOI = 0.004;
+  static final double ARM_GEAR_RATIO = 40.0;
+  static final double ARM_LENGTH_METERS = Units.inchesToMeters(13.370);
+  static final double ARM_MASS_KG = Units.lbsToKilograms(10.0);
+  static final double ARM_MIN_RADIANS = Units.rotationsToRadians(ARM_DEPLOYED_ROTATIONS);
+  static final double ARM_MAX_RADIANS = Units.rotationsToRadians(ARM_STOWED_ROTATIONS);
+  static final double ARM_START_RADIANS = Units.rotationsToRadians(ARM_STOWED_ROTATIONS);
+  static final double LOOP_PERIOD_SECONDS = 0.020;
 
   static TalonFXConfiguration createRollerLeadConfig() {
     return createRollerConfig(InvertedValue.Clockwise_Positive);
@@ -64,16 +80,16 @@ final class IntakeConstants {
                 .withInverted(InvertedValue.Clockwise_Positive))
         .withSlot0(
             new Slot0Configs()
-                .withKP(14.0)
+                .withKP(ARM_FAST_KP)
                 .withKV(2.4)
-                .withKG(0.5)
+                .withKG(ARM_KG)
                 .withGravityType(GravityTypeValue.Arm_Cosine)
                 .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign))
         .withSlot1(
             new Slot1Configs()
-                .withKP(8.0)
+                .withKP(ARM_SLOW_KP)
                 .withKV(2.4)
-                .withKG(0.5)
+                .withKG(ARM_KG)
                 .withGravityType(GravityTypeValue.Arm_Cosine)
                 .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign))
         .withFeedback(
@@ -81,7 +97,7 @@ final class IntakeConstants {
                 .withFeedbackRemoteSensorID(ARM_CANCODER_ID)
                 .withFeedbackSensorSource(FeedbackSensorSourceValue.FusedCANcoder)
                 .withSensorToMechanismRatio(1.0)
-                .withRotorToSensorRatio(40.0));
+                .withRotorToSensorRatio(ARM_GEAR_RATIO));
   }
 
   static CANcoderConfiguration createArmCancoderConfig() {
