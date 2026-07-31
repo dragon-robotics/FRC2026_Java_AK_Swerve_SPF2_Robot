@@ -22,6 +22,9 @@ public class IntakeIOSim implements IntakeIO {
   private static final double MINIMUM_LOADED_BUS_VOLTS =
       BatterySim.calculateDefaultBatteryLoadedVoltage(
           ROLLER_STATOR_LIMIT.in(Amps), ROLLER_STATOR_LIMIT.in(Amps), ARM_STATOR_LIMIT.in(Amps));
+  private static final double MAXIMUM_LOADED_BUS_VOLTS =
+      BatterySim.calculateDefaultBatteryLoadedVoltage(
+          -ROLLER_STATOR_LIMIT.in(Amps), -ROLLER_STATOR_LIMIT.in(Amps), -ARM_STATOR_LIMIT.in(Amps));
 
   private enum RollerControlMode {
     VOLTAGE,
@@ -92,7 +95,8 @@ public class IntakeIOSim implements IntakeIO {
     inputs.rollerLeadVelocityRpm = rollerLeadSim.getAngularVelocityRPM();
     inputs.rollerLeadAppliedVolts = rollerLeadSim.getInputVoltage();
     inputs.rollerLeadCurrentAmps =
-        Math.min(ROLLER_STATOR_LIMIT.in(Amps), appliedCycle.rollerLeadCurrentAmps());
+        Math.min(
+            ROLLER_STATOR_LIMIT.in(Amps), Math.abs(appliedCycle.rollerLeadStatorCurrentAmps()));
     inputs.rollerLeadTempCelsius = 0.0;
 
     inputs.rollerFollowerConnected = true;
@@ -100,7 +104,8 @@ public class IntakeIOSim implements IntakeIO {
     inputs.rollerFollowerVelocityRpm = rollerFollowerSim.getAngularVelocityRPM();
     inputs.rollerFollowerAppliedVolts = rollerFollowerSim.getInputVoltage();
     inputs.rollerFollowerCurrentAmps =
-        Math.min(ROLLER_STATOR_LIMIT.in(Amps), appliedCycle.rollerFollowerCurrentAmps());
+        Math.min(
+            ROLLER_STATOR_LIMIT.in(Amps), Math.abs(appliedCycle.rollerFollowerStatorCurrentAmps()));
     inputs.rollerFollowerTempCelsius = 0.0;
 
     double armPositionRotations = Units.radiansToRotations(armSim.getAngleRads());
@@ -110,7 +115,8 @@ public class IntakeIOSim implements IntakeIO {
     inputs.armPositionRotations = armPositionRotations;
     inputs.armVelocityRpm = armVelocityRpm;
     inputs.armAppliedVolts = armSim.getInput(0);
-    inputs.armCurrentAmps = Math.min(ARM_STATOR_LIMIT.in(Amps), appliedCycle.armCurrentAmps());
+    inputs.armCurrentAmps =
+        Math.min(ARM_STATOR_LIMIT.in(Amps), Math.abs(appliedCycle.armStatorCurrentAmps()));
     inputs.armTempCelsius = 0.0;
 
     inputs.armCancoderConnected = true;
@@ -178,7 +184,7 @@ public class IntakeIOSim implements IntakeIO {
   private SolvedCycle solveLoadedCycle(
       double leadRotorSpeed, double followerRotorSpeed, double armRotorSpeed) {
     double lowerBusVolts = MINIMUM_LOADED_BUS_VOLTS;
-    double upperBusVolts = ROLLER_MAX_VOLTAGE.in(Volts);
+    double upperBusVolts = MAXIMUM_LOADED_BUS_VOLTS;
     double loadedBusVolts = upperBusVolts;
     AppliedCycle appliedCycle =
         calculateAppliedCycle(leadRotorSpeed, followerRotorSpeed, armRotorSpeed, loadedBusVolts);
@@ -188,13 +194,23 @@ public class IntakeIOSim implements IntakeIO {
           calculateAppliedCycle(leadRotorSpeed, followerRotorSpeed, armRotorSpeed, loadedBusVolts);
       double nextLoadedBusVolts = calculateLoadedBusVoltage(appliedCycle);
       if (Math.abs(nextLoadedBusVolts - loadedBusVolts) <= BATTERY_SOLVER_TOLERANCE_VOLTS) {
-        return new SolvedCycle(loadedBusVolts, appliedCycle);
+        break;
       }
       if (nextLoadedBusVolts > loadedBusVolts) {
         lowerBusVolts = loadedBusVolts;
       } else {
         upperBusVolts = loadedBusVolts;
       }
+    }
+    double residualVolts = calculateLoadedBusVoltage(appliedCycle) - loadedBusVolts;
+    if (!Double.isFinite(residualVolts)
+        || Math.abs(residualVolts) > BATTERY_SOLVER_TOLERANCE_VOLTS) {
+      throw new IllegalStateException(
+          "Intake battery solver failed to converge at "
+              + loadedBusVolts
+              + " V with residual "
+              + residualVolts
+              + " V");
     }
     return new SolvedCycle(loadedBusVolts, appliedCycle);
   }
@@ -232,16 +248,22 @@ public class IntakeIOSim implements IntakeIO {
         leadVolts,
         followerVolts,
         armVolts,
-        Math.abs(ROLLER_SIM_MOTOR.getCurrent(leadRotorSpeed, leadVolts)),
-        Math.abs(ROLLER_SIM_MOTOR.getCurrent(followerRotorSpeed, followerVolts)),
-        Math.abs(ARM_SIM_MOTOR.getCurrent(armRotorSpeed, armVolts)));
+        ROLLER_SIM_MOTOR.getCurrent(leadRotorSpeed, leadVolts),
+        ROLLER_SIM_MOTOR.getCurrent(followerRotorSpeed, followerVolts),
+        ARM_SIM_MOTOR.getCurrent(armRotorSpeed, armVolts));
   }
 
   private static double calculateLoadedBusVoltage(AppliedCycle appliedCycle) {
     return BatterySim.calculateDefaultBatteryLoadedVoltage(
-        appliedCycle.rollerLeadCurrentAmps(),
-        appliedCycle.rollerFollowerCurrentAmps(),
-        appliedCycle.armCurrentAmps());
+        calculateBatteryCurrent(
+            appliedCycle.rollerLeadStatorCurrentAmps(), appliedCycle.rollerLeadVolts()),
+        calculateBatteryCurrent(
+            appliedCycle.rollerFollowerStatorCurrentAmps(), appliedCycle.rollerFollowerVolts()),
+        calculateBatteryCurrent(appliedCycle.armStatorCurrentAmps(), appliedCycle.armVolts()));
+  }
+
+  private static double calculateBatteryCurrent(double statorCurrentAmps, double appliedVolts) {
+    return statorCurrentAmps * Math.signum(appliedVolts);
   }
 
   private double calculateRollerVoltage(double rollerRotorSpeed, double loadedBusVolts) {
@@ -300,9 +322,9 @@ public class IntakeIOSim implements IntakeIO {
       double rollerLeadVolts,
       double rollerFollowerVolts,
       double armVolts,
-      double rollerLeadCurrentAmps,
-      double rollerFollowerCurrentAmps,
-      double armCurrentAmps) {}
+      double rollerLeadStatorCurrentAmps,
+      double rollerFollowerStatorCurrentAmps,
+      double armStatorCurrentAmps) {}
 
   private record SolvedCycle(double loadedBusVolts, AppliedCycle appliedCycle) {}
 }
