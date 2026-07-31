@@ -27,8 +27,12 @@ public class GyroIONavX implements GyroIO {
   @Override
   public void updateInputs(GyroIOInputs inputs) {
     inputs.connected = navX.isConnected();
+    // Yaw and yaw rate retain the existing negation. Pitch and roll use the navX signs directly;
+    // downstream vision stability checks use their absolute values.
     inputs.yawPosition = Rotation2d.fromDegrees(-navX.getYaw());
     inputs.yawVelocityRadPerSec = Units.degreesToRadians(-navX.getRawGyroZ());
+    inputs.pitchDegrees = navX.getPitch();
+    inputs.rollDegrees = navX.getRoll();
 
     inputs.odometryYawTimestamps =
         yawTimestampQueue.stream().mapToDouble((Double value) -> value).toArray();
