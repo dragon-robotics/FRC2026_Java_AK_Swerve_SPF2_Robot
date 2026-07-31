@@ -70,8 +70,12 @@ class IntakeIOTalonFXConfigTest {
     assertEquals(14.0, arm.Slot0.kP, 1e-9);
     assertEquals(8.0, arm.Slot1.kP, 1e-9);
     assertEquals(2.4, arm.Slot0.kV, 1e-9);
+    assertEquals(2.4, arm.Slot1.kV, 1e-9);
+    assertEquals(0.5, arm.Slot0.kG, 1e-9);
     assertEquals(0.5, arm.Slot1.kG, 1e-9);
     assertEquals(GravityTypeValue.Arm_Cosine, arm.Slot0.GravityType);
+    assertEquals(GravityTypeValue.Arm_Cosine, arm.Slot1.GravityType);
+    assertEquals(StaticFeedforwardSignValue.UseClosedLoopSign, arm.Slot0.StaticFeedforwardSign);
     assertEquals(StaticFeedforwardSignValue.UseClosedLoopSign, arm.Slot1.StaticFeedforwardSign);
     assertEquals(0.881064453125, cancoder.MagnetSensor.MagnetOffset, 1e-12);
     assertEquals(0.5, cancoder.MagnetSensor.AbsoluteSensorDiscontinuityPoint, 1e-9);

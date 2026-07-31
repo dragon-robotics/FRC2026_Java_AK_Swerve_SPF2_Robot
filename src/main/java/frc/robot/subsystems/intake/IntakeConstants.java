@@ -66,11 +66,15 @@ final class IntakeConstants {
             new Slot0Configs()
                 .withKP(14.0)
                 .withKV(2.4)
-                .withGravityType(GravityTypeValue.Arm_Cosine))
+                .withKG(0.5)
+                .withGravityType(GravityTypeValue.Arm_Cosine)
+                .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign))
         .withSlot1(
             new Slot1Configs()
                 .withKP(8.0)
+                .withKV(2.4)
                 .withKG(0.5)
+                .withGravityType(GravityTypeValue.Arm_Cosine)
                 .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign))
         .withFeedback(
             new FeedbackConfigs()
