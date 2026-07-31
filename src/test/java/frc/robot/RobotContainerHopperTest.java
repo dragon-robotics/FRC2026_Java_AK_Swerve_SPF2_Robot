@@ -16,7 +16,7 @@ class RobotContainerHopperTest {
   @Test
   void replayUsesNoOpIO() {
     HopperIO io = RobotContainer.createHopperIO(Mode.REPLAY);
-    assertNotNull(io);
-    assertFalse(io instanceof HopperIOSim);
+
+    assertInstanceOf(HopperIO.NoOp.class, io);
   }
 }

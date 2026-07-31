@@ -33,7 +33,8 @@ public class HopperIOSim implements HopperIO {
   @Override
   public void setVoltage(Voltage voltage) {
     controlMode = ControlMode.VOLTAGE;
-    requestedVoltage = MathUtil.clamp(voltage.in(Volts), -12.0, 12.0);
+    requestedVoltage =
+        MathUtil.clamp(voltage.in(Volts), -MAX_VOLTAGE.in(Volts), MAX_VOLTAGE.in(Volts));
   }
 
   @Override
@@ -45,19 +46,21 @@ public class HopperIOSim implements HopperIO {
   @Override
   public void setTorqueCurrent(Current current) {
     controlMode = ControlMode.TORQUE_CURRENT;
-    requestedTorqueCurrentAmps = MathUtil.clamp(current.in(Amps), -80.0, 80.0);
+    requestedTorqueCurrentAmps =
+        MathUtil.clamp(
+            current.in(Amps), -STATOR_CURRENT_LIMIT.in(Amps), STATOR_CURRENT_LIMIT.in(Amps));
   }
 
   private double calculateVoltage(DCMotorSim sim) {
     return switch (controlMode) {
       case VOLTAGE -> requestedVoltage;
-      case DUTY_CYCLE -> requestedDutyCycle * 12.0;
+      case DUTY_CYCLE -> requestedDutyCycle * MAX_VOLTAGE.in(Volts);
       case TORQUE_CURRENT -> MathUtil.clamp(
           SIM_MOTOR.getVoltage(
               SIM_MOTOR.getTorque(requestedTorqueCurrentAmps),
               sim.getAngularVelocityRadPerSec() * SIM_GEARING),
-          -12.0,
-          12.0);
+          -MAX_VOLTAGE.in(Volts),
+          MAX_VOLTAGE.in(Volts));
     };
   }
 
