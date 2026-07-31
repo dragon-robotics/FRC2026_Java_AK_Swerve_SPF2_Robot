@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import edu.wpi.first.hal.HAL;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
+import edu.wpi.first.math.kinematics.SwerveDriveOdometry;
+import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,20 +46,49 @@ class DriveVisionSupportTest {
   }
 
   @Test
-  void timestampedSamplesUseEstimatorFpgaSecondsWithoutConversion() {
-    assertTrue(drive.samplePoseAt(5.5).isEmpty());
-    double initialDistanceMeters = frontLeft.distanceMeters;
+  void batchedTimestampedSamplesAdvanceTruthForEveryIndexedSample() {
+    assertTrue(drive.samplePoseAt(5.0).isEmpty());
+    SwerveDriveKinematics kinematics = new SwerveDriveKinematics(Drive.getModuleTranslations());
+    SwerveModulePosition[] initialPositions = currentModulePositions();
+    SwerveModulePosition[] firstPositions =
+        offsetModulePositions(
+            initialPositions,
+            new double[] {0.8, 1.0, 0.7, 1.1},
+            new double[] {20.0, 35.0, 10.0, 45.0});
+    SwerveModulePosition[] secondPositions =
+        offsetModulePositions(
+            initialPositions,
+            new double[] {1.8, 2.2, 1.5, 2.4},
+            new double[] {80.0, 100.0, 65.0, 120.0});
+    Rotation2d firstYaw = Rotation2d.fromDegrees(15.0);
+    Rotation2d secondYaw = Rotation2d.fromDegrees(40.0);
+    SwerveDriveOdometry expectedTruth =
+        new SwerveDriveOdometry(kinematics, Rotation2d.kZero, initialPositions, Pose2d.kZero);
+    expectedTruth.update(firstYaw, firstPositions);
+    Pose2d expectedAtFirstTimestamp = expectedTruth.getPoseMeters();
+    expectedTruth.update(secondYaw, secondPositions);
+    Pose2d expectedFinalPose = expectedTruth.getPoseMeters();
 
-    setOdometrySample(5.0, initialDistanceMeters + 1.0);
-    drive.periodic();
-    setOdometrySample(6.0, initialDistanceMeters + 3.0);
+    SwerveDriveOdometry finalOnlyMutation =
+        new SwerveDriveOdometry(kinematics, Rotation2d.kZero, initialPositions, Pose2d.kZero);
+    finalOnlyMutation.update(secondYaw, secondPositions);
+    SwerveDriveOdometry reusedFinalPositionsMutation =
+        new SwerveDriveOdometry(kinematics, Rotation2d.kZero, initialPositions, Pose2d.kZero);
+    reusedFinalPositionsMutation.update(firstYaw, secondPositions);
+    reusedFinalPositionsMutation.update(secondYaw, secondPositions);
+    assertPosesDiffer(expectedFinalPose, finalOnlyMutation.getPoseMeters());
+    assertPosesDiffer(expectedFinalPose, reusedFinalPositionsMutation.getPoseMeters());
+
+    setOdometrySamples(
+        new double[] {5.0, 6.0},
+        new Rotation2d[] {firstYaw, secondYaw},
+        new SwerveModulePosition[][] {firstPositions, secondPositions});
     drive.periodic();
 
-    Optional<Pose2d> sampledPose = drive.samplePoseAt(5.5);
+    Optional<Pose2d> sampledPose = drive.samplePoseAt(5.0);
     assertTrue(sampledPose.isPresent());
-    assertEquals(2.0, sampledPose.orElseThrow().getX(), EPSILON);
-    assertEquals(0.0, sampledPose.orElseThrow().getY(), EPSILON);
-    assertPoseEquals(new Pose2d(3.0, 0.0, Rotation2d.kZero), drive.getSimulationPose());
+    assertPoseEquals(expectedAtFirstTimestamp, sampledPose.orElseThrow());
+    assertPoseEquals(expectedFinalPose, drive.getSimulationPose());
   }
 
   @Test
@@ -95,11 +127,40 @@ class DriveVisionSupportTest {
     assertEquals(expectedStable, drive.isPitchRollStableForVision(maxAbsTiltDegrees));
   }
 
-  private void setOdometrySample(double timestampSeconds, double distanceMeters) {
-    gyroIO.setOdometrySample(timestampSeconds, Rotation2d.kZero);
-    for (SampledModuleIO module : modules()) {
-      module.setOdometrySample(timestampSeconds, distanceMeters, Rotation2d.kZero);
+  private void setOdometrySamples(
+      double[] timestamps, Rotation2d[] yawPositions, SwerveModulePosition[][] samplePositions) {
+    gyroIO.setOdometrySamples(timestamps, yawPositions);
+    SampledModuleIO[] modules = modules();
+    for (int moduleIndex = 0; moduleIndex < modules.length; moduleIndex++) {
+      SwerveModulePosition[] moduleSamples = new SwerveModulePosition[samplePositions.length];
+      for (int sampleIndex = 0; sampleIndex < samplePositions.length; sampleIndex++) {
+        moduleSamples[sampleIndex] = samplePositions[sampleIndex][moduleIndex];
+      }
+      modules[moduleIndex].setOdometrySamples(timestamps, moduleSamples);
     }
+  }
+
+  private SwerveModulePosition[] currentModulePositions() {
+    SampledModuleIO[] modules = modules();
+    SwerveModulePosition[] positions = new SwerveModulePosition[modules.length];
+    for (int i = 0; i < modules.length; i++) {
+      positions[i] = modules[i].currentPosition();
+    }
+    return positions;
+  }
+
+  private static SwerveModulePosition[] offsetModulePositions(
+      SwerveModulePosition[] initialPositions,
+      double[] distanceOffsetsMeters,
+      double[] anglesDegrees) {
+    SwerveModulePosition[] positions = new SwerveModulePosition[initialPositions.length];
+    for (int i = 0; i < initialPositions.length; i++) {
+      positions[i] =
+          new SwerveModulePosition(
+              initialPositions[i].distanceMeters + distanceOffsetsMeters[i],
+              Rotation2d.fromDegrees(anglesDegrees[i]));
+    }
+    return positions;
   }
 
   private SampledModuleIO[] modules() {
@@ -110,6 +171,10 @@ class DriveVisionSupportTest {
     assertEquals(expected.getX(), actual.getX(), EPSILON);
     assertEquals(expected.getY(), actual.getY(), EPSILON);
     assertEquals(expected.getRotation().getRadians(), actual.getRotation().getRadians(), EPSILON);
+  }
+
+  private static void assertPosesDiffer(Pose2d expected, Pose2d mutation) {
+    assertTrue(expected.getTranslation().getDistance(mutation.getTranslation()) > 1e-3);
   }
 
   private static final class SampledGyroIO implements GyroIO {
@@ -123,9 +188,9 @@ class DriveVisionSupportTest {
       this.rollDegrees = rollDegrees;
     }
 
-    void setOdometrySample(double timestampSeconds, Rotation2d yawPosition) {
-      odometryTimestamps = new double[] {timestampSeconds};
-      odometryPositions = new Rotation2d[] {yawPosition};
+    void setOdometrySamples(double[] timestamps, Rotation2d[] yawPositions) {
+      odometryTimestamps = timestamps.clone();
+      odometryPositions = yawPositions.clone();
     }
 
     void clearOdometrySamples() {
@@ -155,13 +220,21 @@ class DriveVisionSupportTest {
       this.wheelRadiusMeters = wheelRadiusMeters;
     }
 
-    void setOdometrySample(
-        double timestampSeconds, double distanceMeters, Rotation2d turnPosition) {
-      this.distanceMeters = distanceMeters;
-      this.turnPosition = turnPosition;
-      odometryTimestamps = new double[] {timestampSeconds};
-      odometryDrivePositionsRad = new double[] {distanceMeters / wheelRadiusMeters};
-      odometryTurnPositions = new Rotation2d[] {turnPosition};
+    void setOdometrySamples(double[] timestamps, SwerveModulePosition[] positions) {
+      SwerveModulePosition finalPosition = positions[positions.length - 1];
+      distanceMeters = finalPosition.distanceMeters;
+      turnPosition = finalPosition.angle;
+      odometryTimestamps = timestamps.clone();
+      odometryDrivePositionsRad = new double[positions.length];
+      odometryTurnPositions = new Rotation2d[positions.length];
+      for (int i = 0; i < positions.length; i++) {
+        odometryDrivePositionsRad[i] = positions[i].distanceMeters / wheelRadiusMeters;
+        odometryTurnPositions[i] = positions[i].angle;
+      }
+    }
+
+    SwerveModulePosition currentPosition() {
+      return new SwerveModulePosition(distanceMeters, turnPosition);
     }
 
     void clearOdometrySamples() {
