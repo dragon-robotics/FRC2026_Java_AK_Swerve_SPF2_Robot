@@ -25,6 +25,10 @@ import frc.robot.subsystems.drive.ModuleIO;
 import frc.robot.subsystems.drive.ModuleIOSim;
 import frc.robot.subsystems.drive.ModuleIOTalonFX;
 import frc.robot.subsystems.drive.TunerConstants;
+import frc.robot.subsystems.hopper.Hopper;
+import frc.robot.subsystems.hopper.HopperIO;
+import frc.robot.subsystems.hopper.HopperIOSim;
+import frc.robot.subsystems.hopper.HopperIOTalonFX;
 import frc.robot.util.constants.FieldConstants.FieldZones;
 import frc.robot.util.constants.OperatorConstants;
 import java.util.Optional;
@@ -39,6 +43,7 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 public class RobotContainer {
   // Subsystems
   private final Drive drive;
+  private final Hopper hopper;
 
   // Default-drive state
   private Optional<Rotation2d> currentDriveHeading = Optional.empty();
@@ -92,6 +97,8 @@ public class RobotContainer {
                 new ModuleIO() {});
         break;
     }
+
+    hopper = new Hopper(createHopperIO(Constants.currentMode));
 
     // Set up auto routines
     autoChooser = new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser());
@@ -167,5 +174,13 @@ public class RobotContainer {
    */
   public Command getAutonomousCommand() {
     return autoChooser.get();
+  }
+
+  static HopperIO createHopperIO(Constants.Mode mode) {
+    return switch (mode) {
+      case REAL -> new HopperIOTalonFX();
+      case SIM -> new HopperIOSim();
+      case REPLAY -> new HopperIO() {};
+    };
   }
 }
