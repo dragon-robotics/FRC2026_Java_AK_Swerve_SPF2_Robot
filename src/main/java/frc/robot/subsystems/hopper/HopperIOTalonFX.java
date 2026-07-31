@@ -24,6 +24,8 @@ import edu.wpi.first.units.measure.Voltage;
 
 /** Real TalonFX hardware interface for the hopper lead and follower motors. */
 public class HopperIOTalonFX implements HopperIO {
+  record StatusFrequencyConfig(double mechanismHz, double temperatureHz, double unspecifiedHz) {}
+
   private final TalonFX leadMotor = new TalonFX(LEAD_MOTOR_ID);
   private final TalonFX followerMotor = new TalonFX(FOLLOWER_MOTOR_ID);
   private final VoltageOut voltageRequest = createVoltageRequest();
@@ -46,13 +48,15 @@ public class HopperIOTalonFX implements HopperIO {
       new Debouncer(0.5, Debouncer.DebounceType.kFalling);
 
   public HopperIOTalonFX() {
+    var statusFrequencies = createStatusFrequencyConfig();
+
     tryUntilOk(5, () -> leadMotor.getConfigurator().apply(createLeadConfig(), 0.25));
     tryUntilOk(5, () -> followerMotor.getConfigurator().apply(createFollowerConfig(), 0.25));
     tryUntilOk(5, () -> leadMotor.clearStickyFaults(0.25));
     tryUntilOk(5, () -> followerMotor.clearStickyFaults(0.25));
 
     BaseStatusSignal.setUpdateFrequencyForAll(
-        MECHANISM_STATUS_HZ,
+        statusFrequencies.mechanismHz(),
         leadPosition,
         leadVelocity,
         leadVoltage,
@@ -61,15 +65,12 @@ public class HopperIOTalonFX implements HopperIO {
         followerVelocity,
         followerVoltage,
         followerCurrent);
-    BaseStatusSignal.setUpdateFrequencyForAll(SLOW_STATUS_HZ, leadTemperature, followerTemperature);
-    ParentDevice.optimizeBusUtilizationForAll(SLOW_STATUS_HZ, leadMotor, followerMotor);
+    BaseStatusSignal.setUpdateFrequencyForAll(
+        statusFrequencies.temperatureHz(), leadTemperature, followerTemperature);
+    ParentDevice.optimizeBusUtilizationForAll(
+        statusFrequencies.unspecifiedHz(), leadMotor, followerMotor);
 
-    tryUntilOk(
-        5,
-        () ->
-            followerMotor.setControl(
-                new Follower(LEAD_MOTOR_ID, MotorAlignmentValue.Aligned)
-                    .withUpdateFreqHz(CONTROL_UPDATE_HZ)));
+    tryUntilOk(5, () -> followerMotor.setControl(createFollowerRequest()));
   }
 
   static VoltageOut createVoltageRequest() {
@@ -86,6 +87,15 @@ public class HopperIOTalonFX implements HopperIO {
         .withDeadband(TORQUE_DEADBAND)
         .withOverrideCoastDurNeutral(true)
         .withUpdateFreqHz(CONTROL_UPDATE_HZ);
+  }
+
+  static Follower createFollowerRequest() {
+    return new Follower(LEAD_MOTOR_ID, MotorAlignmentValue.Aligned)
+        .withUpdateFreqHz(CONTROL_UPDATE_HZ);
+  }
+
+  static StatusFrequencyConfig createStatusFrequencyConfig() {
+    return new StatusFrequencyConfig(MECHANISM_STATUS_HZ, SLOW_STATUS_HZ, SLOW_STATUS_HZ);
   }
 
   @Override

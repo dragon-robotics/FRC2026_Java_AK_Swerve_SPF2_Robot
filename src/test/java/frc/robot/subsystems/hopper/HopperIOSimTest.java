@@ -41,4 +41,20 @@ class HopperIOSimTest {
     assertTrue(inputs.leadCurrentAmps <= 80.0 + 1e-6);
     assertTrue(inputs.leadAppliedVolts > 0.0);
   }
+
+  @Test
+  void negativeDutyCycleIsClampedAndMovesBothMotorsBackward() {
+    HopperIOSim io = new HopperIOSim();
+    HopperIO.HopperIOInputs inputs = new HopperIO.HopperIOInputs();
+
+    io.setDutyCycle(-2.0);
+    for (int i = 0; i < 10; i++) {
+      io.updateInputs(inputs);
+    }
+
+    assertEquals(-12.0, inputs.leadAppliedVolts, 1e-9);
+    assertEquals(-12.0, inputs.followerAppliedVolts, 1e-9);
+    assertTrue(inputs.leadVelocityRpm < 0.0);
+    assertTrue(inputs.followerVelocityRpm < 0.0);
+  }
 }

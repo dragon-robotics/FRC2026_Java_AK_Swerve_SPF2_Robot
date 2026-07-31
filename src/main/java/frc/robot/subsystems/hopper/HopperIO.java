@@ -5,6 +5,9 @@ import edu.wpi.first.units.measure.Voltage;
 import org.littletonrobotics.junction.AutoLog;
 
 public interface HopperIO {
+  /** Replay-safe implementation that performs no hardware or simulation IO. */
+  final class NoOp implements HopperIO {}
+
   @AutoLog
   class HopperIOInputs {
     public boolean leadConnected;

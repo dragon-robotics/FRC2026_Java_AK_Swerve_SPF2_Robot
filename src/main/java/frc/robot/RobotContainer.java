@@ -180,7 +180,7 @@ public class RobotContainer {
     return switch (mode) {
       case REAL -> new HopperIOTalonFX();
       case SIM -> new HopperIOSim();
-      case REPLAY -> new HopperIO() {};
+      case REPLAY -> new HopperIO.NoOp();
     };
   }
 }
