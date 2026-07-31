@@ -1,7 +1,11 @@
 package frc.robot.subsystems.hopper;
 
+import static edu.wpi.first.units.Units.Celsius;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.ctre.phoenix6.BaseStatusSignal;
+import com.ctre.phoenix6.StatusCode;
+import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.controls.TorqueCurrentFOC;
@@ -9,6 +13,7 @@ import com.ctre.phoenix6.controls.VoltageOut;
 import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.MotorAlignmentValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
+import edu.wpi.first.units.measure.Temperature;
 import org.junit.jupiter.api.Test;
 
 class HopperIOTalonFXConfigTest {
@@ -58,6 +63,19 @@ class HopperIOTalonFXConfigTest {
     assertEquals(50.0, frequencies.mechanismHz(), 1e-9);
     assertEquals(4.0, frequencies.temperatureHz(), 1e-9);
     assertEquals(4.0, frequencies.unspecifiedHz(), 1e-9);
+  }
+
+  @Test
+  void temperatureRefreshSignalsIncludeLeadAndFollower() {
+    StatusSignal<Temperature> leadTemperature =
+        new StatusSignal<>(StatusCode.StatusCodeNotInitialized, Temperature.class, Celsius::of);
+    StatusSignal<Temperature> followerTemperature =
+        new StatusSignal<>(StatusCode.StatusCodeNotInitialized, Temperature.class, Celsius::of);
+
+    var signals =
+        HopperIOTalonFX.createTemperatureRefreshSignals(leadTemperature, followerTemperature);
+
+    assertArrayEquals(new BaseStatusSignal[] {leadTemperature, followerTemperature}, signals);
   }
 
   private static void assertSafetyAndOutputContract(TalonFXConfiguration config) {

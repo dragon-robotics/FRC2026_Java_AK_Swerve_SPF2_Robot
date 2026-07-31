@@ -42,6 +42,8 @@ public class HopperIOTalonFX implements HopperIO {
   private final StatusSignal<Voltage> followerVoltage = followerMotor.getMotorVoltage();
   private final StatusSignal<Current> followerCurrent = followerMotor.getStatorCurrent();
   private final StatusSignal<Temperature> followerTemperature = followerMotor.getDeviceTemp();
+  private final BaseStatusSignal[] temperatureRefreshSignals =
+      createTemperatureRefreshSignals(leadTemperature, followerTemperature);
   private final Debouncer leadConnectedDebouncer =
       new Debouncer(0.5, Debouncer.DebounceType.kFalling);
   private final Debouncer followerConnectedDebouncer =
@@ -98,6 +100,11 @@ public class HopperIOTalonFX implements HopperIO {
     return new StatusFrequencyConfig(MECHANISM_STATUS_HZ, SLOW_STATUS_HZ, SLOW_STATUS_HZ);
   }
 
+  static BaseStatusSignal[] createTemperatureRefreshSignals(
+      StatusSignal<Temperature> leadTemperature, StatusSignal<Temperature> followerTemperature) {
+    return new BaseStatusSignal[] {leadTemperature, followerTemperature};
+  }
+
   @Override
   public void updateInputs(HopperIOInputs inputs) {
     var leadStatus =
@@ -105,6 +112,7 @@ public class HopperIOTalonFX implements HopperIO {
     var followerStatus =
         BaseStatusSignal.refreshAll(
             followerPosition, followerVelocity, followerVoltage, followerCurrent);
+    BaseStatusSignal.refreshAll(temperatureRefreshSignals);
 
     inputs.leadConnected = leadConnectedDebouncer.calculate(leadStatus.isOK());
     inputs.leadPositionRotations = leadPosition.getValueAsDouble();
