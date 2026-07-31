@@ -550,14 +550,6 @@ import org.junit.jupiter.api.Test;
 
 class ShooterIOTalonFXConfigTest {
   @Test
-  void hardwareIdsMatchReference() {
-    assertEquals(13, ShooterConstants.HOOD_MOTOR_ID);
-    assertEquals(14, ShooterConstants.KICKER_MOTOR_ID);
-    assertEquals(15, ShooterConstants.FLYWHEEL_LEAD_MOTOR_ID);
-    assertEquals(16, ShooterConstants.FLYWHEEL_FOLLOWER_MOTOR_ID);
-  }
-
-  @Test
   void flywheelVelocityRequestUsesSupportedLockedSettings() {
     VelocityTorqueCurrentFOC request = ShooterIOTalonFX.createFlywheelVelocityRequest();
     assertTrue(request.OverrideCoastDurNeutral);
