@@ -7,12 +7,7 @@
 
 package frc.robot;
 
-import java.util.Optional;
-
-import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
-
 import com.pathplanner.lib.auto.AutoBuilder;
-
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -32,6 +27,8 @@ import frc.robot.subsystems.drive.ModuleIOTalonFX;
 import frc.robot.subsystems.drive.TunerConstants;
 import frc.robot.util.constants.FieldConstants.FieldZones;
 import frc.robot.util.constants.OperatorConstants;
+import java.util.Optional;
+import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 /**
  * This class is where the bulk of the robot should be declared. Since Command-based is a
@@ -49,8 +46,10 @@ public class RobotContainer {
 
   // Controller
 
-  private final CommandXboxController driverController = new CommandXboxController(OperatorConstants.DRIVER_PORT);
-  private final CommandXboxController operatorController = new CommandXboxController(OperatorConstants.OPERATOR_PORT);
+  private final CommandXboxController driverController =
+      new CommandXboxController(OperatorConstants.DRIVER_PORT);
+  private final CommandXboxController operatorController =
+      new CommandXboxController(OperatorConstants.OPERATOR_PORT);
 
   // Dashboard inputs
   private final LoggedDashboardChooser<Command> autoChooser;
@@ -142,7 +141,8 @@ public class RobotContainer {
 
     // Reset gyro to 0° when start and back buttons are pressed
     driverController
-        .start().and(driverController.back())
+        .start()
+        .and(driverController.back())
         .onTrue(
             Commands.runOnce(
                     () ->
