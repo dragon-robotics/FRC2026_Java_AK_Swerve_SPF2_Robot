@@ -143,6 +143,7 @@ public class Shooter extends SubsystemBase {
     Logger.recordOutput("Shooter/DesiredState", desiredState.name());
     Logger.recordOutput("Shooter/TargetRPM", targetRpm);
     Logger.recordOutput("Shooter/TargetHoodRotations", targetHoodRotations);
+    Logger.recordOutput("Shooter/MeasuredFlywheelRPM", getMeasuredFlywheelRpm());
     Logger.recordOutput("Shooter/FlywheelReady", isFlywheelReady());
     Logger.recordOutput("Shooter/HoodReady", isHoodReady());
   }
@@ -177,10 +178,14 @@ public class Shooter extends SubsystemBase {
   }
 
   private void transitionToShoot() {
-    runFlywheelVelocity(targetRpm);
-    runHoodPosition(targetHoodRotations);
-    runKickerVoltage(KICKER_PREP_VOLTAGE);
-    if (isFlywheelReady() && isHoodReady()) currentState = ShooterState.SHOOT;
+    if (isFlywheelReady() && isHoodReady()) {
+      commandShoot();
+      currentState = ShooterState.SHOOT;
+    } else {
+      runFlywheelVelocity(targetRpm);
+      runHoodPosition(targetHoodRotations);
+      runKickerVoltage(KICKER_PREP_VOLTAGE);
+    }
   }
 
   private void commandPrepFuel() {

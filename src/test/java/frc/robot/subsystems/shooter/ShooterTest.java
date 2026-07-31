@@ -125,12 +125,15 @@ class ShooterTest {
     shooter.periodic();
     shooter.setSetpoint(2500.0, 0.75);
     shooter.setDesiredState(ShooterState.SHOOT);
-    io.measuredFlywheelRpm = 2380.0;
+    io.measuredFlywheelRpm = 2379.0;
     io.measuredHoodRotations = 0.625;
     shooter.periodic();
-    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
+    assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
     assertEquals(6.0, io.kickerVolts, 1e-9);
+
+    io.measuredFlywheelRpm = 2380.0;
     shooter.periodic();
+    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
     assertEquals(12.0, io.kickerVolts, 1e-9);
   }
 
