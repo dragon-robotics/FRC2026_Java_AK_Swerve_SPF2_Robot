@@ -108,9 +108,9 @@ Control and status timing:
 
 - All control requests update at 100 Hz.
 - Voltage and duty-cycle requests enable FOC.
-- Torque-current requests use a 1 A deadband.
-- Torque-current requests use a 1.0 maximum absolute duty cycle.
-- Torque-current requests override coast during neutral.
+- Direct `TorqueCurrentFOC` requests use a 1 A deadband.
+- Direct `TorqueCurrentFOC` requests use a 1.0 maximum absolute duty cycle.
+- `VelocityTorqueCurrentFOC` and direct `TorqueCurrentFOC` requests override coast during neutral.
 - Position, velocity, applied-voltage, and stator-current signals update at 50 Hz.
 - Temperature signals update at 4 Hz.
 - Unspecified signals update at 4 Hz after CAN-bus optimization.
@@ -167,9 +167,11 @@ The real implementation uses:
 - `TorqueCurrentFOC` for direct torque current.
 - `Follower` for the opposed flywheel follower.
 
-Flywheel velocity and direct torque-current requests use a 1 A deadband, 1.0 maximum absolute duty
-cycle, coast-during-neutral override, and 100 Hz update frequency. Voltage and duty-cycle requests
-enable FOC and update at 100 Hz. Hood position and follower requests also update at 100 Hz.
+The flywheel velocity request uses coast-during-neutral override and a 100 Hz update frequency;
+Phoenix `VelocityTorqueCurrentFOC` does not expose deadband or maximum-duty request fields. Direct
+`TorqueCurrentFOC` requests use a 1 A deadband, 1.0 maximum absolute duty cycle,
+coast-during-neutral override, and 100 Hz updates. Voltage and duty-cycle requests enable FOC and
+update at 100 Hz. Hood position and follower requests also update at 100 Hz.
 
 Each controller configuration is applied through the repository's bounded `PhoenixUtil` retry
 helper, then sticky faults are cleared. Every status signal used by `updateInputs()` is refreshed
