@@ -42,6 +42,7 @@ import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.Constants;
 import frc.robot.Constants.Mode;
 import frc.robot.util.LocalADStarAK;
+import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import org.littletonrobotics.junction.AutoLogOutput;
@@ -96,6 +97,9 @@ public class Drive extends SubsystemBase {
       };
   private SwerveDrivePoseEstimator poseEstimator =
       new SwerveDrivePoseEstimator(kinematics, rawGyroRotation, lastModulePositions, Pose2d.kZero);
+  private final DriveSimulationPoseTracker simulationPoseTracker =
+      new DriveSimulationPoseTracker(
+          kinematics, rawGyroRotation, lastModulePositions, Pose2d.kZero);
 
   public Drive(
       GyroIO gyroIO,
@@ -118,7 +122,7 @@ public class Drive extends SubsystemBase {
     // Configure AutoBuilder for PathPlanner
     AutoBuilder.configure(
         this::getPose,
-        this::setPose,
+        this::setPoseAndSimulationTruth,
         this::getChassisSpeeds,
         this::runVelocity,
         new PPHolonomicDriveController(
@@ -204,6 +208,7 @@ public class Drive extends SubsystemBase {
 
       // Apply update
       poseEstimator.updateWithTime(sampleTimestamps[i], rawGyroRotation, modulePositions);
+      simulationPoseTracker.update(rawGyroRotation, modulePositions);
     }
 
     // Update gyro alert
@@ -320,6 +325,32 @@ public class Drive extends SubsystemBase {
     return poseEstimator.getEstimatedPosition();
   }
 
+  /** Returns the estimated pose sampled at an FPGA timestamp in seconds. */
+  public Optional<Pose2d> samplePoseAt(double timestampSeconds) {
+    return poseEstimator.sampleAt(timestampSeconds);
+  }
+
+  /** Returns the current gyro pitch in degrees. */
+  public double getPitchDegrees() {
+    return gyroInputs.pitchDegrees;
+  }
+
+  /** Returns the current gyro roll in degrees. */
+  public double getRollDegrees() {
+    return gyroInputs.rollDegrees;
+  }
+
+  /** Returns whether both gyro tilt axes are within the inclusive vision limit. */
+  public boolean isPitchRollStableForVision(double maxAbsTiltDegrees) {
+    return Math.abs(getPitchDegrees()) <= maxAbsTiltDegrees
+        && Math.abs(getRollDegrees()) <= maxAbsTiltDegrees;
+  }
+
+  /** Returns independent odometry truth used by simulation. */
+  public Pose2d getSimulationPose() {
+    return simulationPoseTracker.getPose();
+  }
+
   /** Returns the current odometry rotation. */
   public Rotation2d getRotation() {
     return getPose().getRotation();
@@ -328,6 +359,14 @@ public class Drive extends SubsystemBase {
   /** Resets the current odometry pose. */
   public void setPose(Pose2d pose) {
     poseEstimator.resetPosition(rawGyroRotation, getModulePositions(), pose);
+  }
+
+  /** Resets the estimator and, in simulation only, the independent odometry truth. */
+  public void setPoseAndSimulationTruth(Pose2d pose) {
+    setPose(pose);
+    if (Constants.currentMode == Mode.SIM) {
+      simulationPoseTracker.resetPosition(rawGyroRotation, getModulePositions(), pose);
+    }
   }
 
   /** Adds a new timestamped vision measurement. */
