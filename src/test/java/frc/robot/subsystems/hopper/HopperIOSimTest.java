@@ -57,4 +57,17 @@ class HopperIOSimTest {
     assertTrue(inputs.leadVelocityRpm < 0.0);
     assertTrue(inputs.followerVelocityRpm < 0.0);
   }
+
+  @Test
+  void updateInputsExplicitlyResetsUnmodeledTemperatures() {
+    HopperIOSim io = new HopperIOSim();
+    HopperIO.HopperIOInputs inputs = new HopperIO.HopperIOInputs();
+    inputs.leadTempCelsius = 42.0;
+    inputs.followerTempCelsius = 43.0;
+
+    io.updateInputs(inputs);
+
+    assertEquals(0.0, inputs.leadTempCelsius, 1e-9);
+    assertEquals(0.0, inputs.followerTempCelsius, 1e-9);
+  }
 }

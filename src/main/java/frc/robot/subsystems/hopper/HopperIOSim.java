@@ -78,10 +78,12 @@ public class HopperIOSim implements HopperIO {
     inputs.leadVelocityRpm = leadSim.getAngularVelocityRPM();
     inputs.leadAppliedVolts = leadVolts;
     inputs.leadCurrentAmps = Math.abs(leadSim.getCurrentDrawAmps());
+    inputs.leadTempCelsius = 0.0;
     inputs.followerConnected = true;
     inputs.followerPositionRotations = followerSim.getAngularPositionRotations();
     inputs.followerVelocityRpm = followerSim.getAngularVelocityRPM();
     inputs.followerAppliedVolts = followerVolts;
     inputs.followerCurrentAmps = Math.abs(followerSim.getCurrentDrawAmps());
+    inputs.followerTempCelsius = 0.0;
   }
 }
