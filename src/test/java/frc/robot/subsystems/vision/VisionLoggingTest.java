@@ -189,21 +189,32 @@ class VisionLoggingTest {
   }
 
   @Test
-  void aggregateCameraIdsDriveOverlaysAndUnknownIdsAreSkippedSafely()
+  void selectedObservationIdsDriveAcceptedLinesWhileAggregateIdsDriveCameraOverlay()
       throws ReflectiveOperationException {
     VisionTest.RecordingDrive drive = new VisionTest.RecordingDrive();
-    PoseObservation observation =
+    PoseObservation superseded =
         new PoseObservation(
             5.0,
+            new Pose3d(1.9, 2.0, 0.0, Pose3d.kZero.getRotation()),
+            0.05,
+            1,
+            2.0,
+            PoseObservationType.PHOTONVISION,
+            PoseSolveStrategy.LOWEST_AMBIGUITY,
+            new int[] {26});
+    PoseObservation selected =
+        new PoseObservation(
+            5.01,
             new Pose3d(2.0, 2.0, 0.0, Pose3d.kZero.getRotation()),
             0.05,
             2,
             2.0,
             PoseObservationType.PHOTONVISION_MULTITAG_COPROCESSOR,
             PoseSolveStrategy.MULTI_TAG_PNP_ON_COPROCESSOR,
-            new int[] {2, 3});
+            new int[] {20, 888888});
     VisionTest.ScriptedIO camera =
-        new VisionTest.ScriptedIO("front", true, observation).withAggregateTagIds(26, 999999);
+        new VisionTest.ScriptedIO("front", true, superseded, selected)
+            .withAggregateTagIds(26, 20, 999999);
 
     try (LoggerHarness logger = new LoggerHarness()) {
       new Vision(
@@ -217,12 +228,20 @@ class VisionLoggingTest {
           .periodic();
 
       assertAll(
-          () -> assertArrayEquals(new int[] {26, 999999}, logger.ints("Vision/front/TagIDs")),
+          () -> assertArrayEquals(new int[] {26, 20, 999999}, logger.ints("Vision/front/TagIDs")),
           () ->
               assertArrayEquals(
-                  new Pose3d[] {FieldConstants.APTAG_FIELD_LAYOUT.getTagPose(26).orElseThrow()},
+                  new Pose3d[] {
+                    FieldConstants.APTAG_FIELD_LAYOUT.getTagPose(26).orElseThrow(),
+                    FieldConstants.APTAG_FIELD_LAYOUT.getTagPose(20).orElseThrow()
+                  },
                   logger.poses("Vision/front/TagPoses")),
-          () -> assertEquals(2, logger.poses("Vision/AcceptedTagToPoseLines").length));
+          () ->
+              assertArrayEquals(
+                  new Pose3d[] {
+                    FieldConstants.APTAG_FIELD_LAYOUT.getTagPose(20).orElseThrow(), selected.pose()
+                  },
+                  logger.poses("Vision/AcceptedTagToPoseLines")));
     }
   }
 
