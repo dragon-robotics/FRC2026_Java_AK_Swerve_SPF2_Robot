@@ -36,6 +36,7 @@ import frc.robot.subsystems.shooter.ShooterIOTalonFX;
 import frc.robot.util.constants.FieldConstants.FieldZones;
 import frc.robot.util.constants.OperatorConstants;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 /**
@@ -45,6 +46,13 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
  * subsystems, commands, and button mappings) should be declared here.
  */
 public class RobotContainer {
+  record ShooterIOFactory<T extends ShooterIO>(
+      Class<T> implementationType, Supplier<T> constructor) {
+    T create() {
+      return constructor.get();
+    }
+  }
+
   // Subsystems
   private final Drive drive;
   private final Hopper hopper;
@@ -191,10 +199,14 @@ public class RobotContainer {
   }
 
   static ShooterIO createShooterIO(Constants.Mode mode) {
+    return shooterIOFactory(mode).create();
+  }
+
+  static ShooterIOFactory<? extends ShooterIO> shooterIOFactory(Constants.Mode mode) {
     return switch (mode) {
-      case REAL -> new ShooterIOTalonFX();
-      case SIM -> new ShooterIOSim();
-      case REPLAY -> new ShooterIO.NoOp();
+      case REAL -> new ShooterIOFactory<>(ShooterIOTalonFX.class, ShooterIOTalonFX::new);
+      case SIM -> new ShooterIOFactory<>(ShooterIOSim.class, ShooterIOSim::new);
+      case REPLAY -> new ShooterIOFactory<>(ShooterIO.NoOp.class, ShooterIO.NoOp::new);
     };
   }
 }
