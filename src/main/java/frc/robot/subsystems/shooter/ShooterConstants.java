@@ -2,6 +2,16 @@ package frc.robot.subsystems.shooter;
 
 import static edu.wpi.first.units.Units.*;
 
+import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
+import com.ctre.phoenix6.configs.MotorOutputConfigs;
+import com.ctre.phoenix6.configs.Slot0Configs;
+import com.ctre.phoenix6.configs.TalonFXConfiguration;
+import com.ctre.phoenix6.configs.TorqueCurrentConfigs;
+import com.ctre.phoenix6.configs.VoltageConfigs;
+import com.ctre.phoenix6.signals.GravityTypeValue;
+import com.ctre.phoenix6.signals.InvertedValue;
+import com.ctre.phoenix6.signals.NeutralModeValue;
+import com.ctre.phoenix6.signals.StaticFeedforwardSignValue;
 import edu.wpi.first.math.interpolation.InterpolatingDoubleTreeMap;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Current;
@@ -48,6 +58,97 @@ final class ShooterConstants {
   static ShooterSetpoint getSetpointForDistance(double distanceMeters) {
     return new ShooterSetpoint(
         FLYWHEEL_RPM_MAP.get(distanceMeters), HOOD_ROTATIONS_MAP.get(distanceMeters));
+  }
+
+  static TalonFXConfiguration createFlywheelLeadConfig() {
+    return new TalonFXConfiguration()
+        .withCurrentLimits(
+            new CurrentLimitsConfigs()
+                .withStatorCurrentLimitEnable(true)
+                .withStatorCurrentLimit(FLYWHEEL_STATOR_LIMIT)
+                .withSupplyCurrentLimitEnable(true)
+                .withSupplyCurrentLimit(Amps.of(40.0))
+                .withSupplyCurrentLowerLimit(Amps.of(20.0))
+                .withSupplyCurrentLowerTime(Seconds.of(0.25)))
+        .withVoltage(
+            new VoltageConfigs()
+                .withPeakForwardVoltage(FLYWHEEL_MAX_VOLTAGE)
+                .withPeakReverseVoltage(FLYWHEEL_MAX_VOLTAGE.unaryMinus()))
+        .withMotorOutput(
+            new MotorOutputConfigs()
+                .withNeutralMode(NeutralModeValue.Coast)
+                .withInverted(InvertedValue.Clockwise_Positive))
+        .withSlot0(new Slot0Configs().withKP(8.0).withKS(4.325).withKV(0.013))
+        .withTorqueCurrent(
+            new TorqueCurrentConfigs()
+                .withPeakForwardTorqueCurrent(FLYWHEEL_FORWARD_TORQUE_LIMIT)
+                .withPeakReverseTorqueCurrent(FLYWHEEL_REVERSE_TORQUE_LIMIT));
+  }
+
+  static TalonFXConfiguration createFlywheelFollowerConfig() {
+    return new TalonFXConfiguration()
+        .withCurrentLimits(
+            new CurrentLimitsConfigs()
+                .withStatorCurrentLimitEnable(true)
+                .withStatorCurrentLimit(FLYWHEEL_STATOR_LIMIT)
+                .withSupplyCurrentLimitEnable(true)
+                .withSupplyCurrentLimit(Amps.of(40.0))
+                .withSupplyCurrentLowerLimit(Amps.of(20.0))
+                .withSupplyCurrentLowerTime(Seconds.of(0.25)))
+        .withVoltage(
+            new VoltageConfigs()
+                .withPeakForwardVoltage(FLYWHEEL_MAX_VOLTAGE)
+                .withPeakReverseVoltage(FLYWHEEL_MAX_VOLTAGE.unaryMinus()))
+        .withMotorOutput(new MotorOutputConfigs().withNeutralMode(NeutralModeValue.Coast))
+        .withTorqueCurrent(
+            new TorqueCurrentConfigs()
+                .withPeakForwardTorqueCurrent(FLYWHEEL_FORWARD_TORQUE_LIMIT)
+                .withPeakReverseTorqueCurrent(FLYWHEEL_REVERSE_TORQUE_LIMIT));
+  }
+
+  static TalonFXConfiguration createKickerConfig() {
+    return new TalonFXConfiguration()
+        .withCurrentLimits(
+            new CurrentLimitsConfigs()
+                .withStatorCurrentLimitEnable(true)
+                .withStatorCurrentLimit(KICKER_STATOR_LIMIT)
+                .withSupplyCurrentLimitEnable(true)
+                .withSupplyCurrentLimit(Amps.of(40.0))
+                .withSupplyCurrentLowerLimit(Amps.of(20.0))
+                .withSupplyCurrentLowerTime(Seconds.of(0.25)))
+        .withVoltage(
+            new VoltageConfigs()
+                .withPeakForwardVoltage(KICKER_MAX_VOLTAGE)
+                .withPeakReverseVoltage(KICKER_MAX_VOLTAGE.unaryMinus()))
+        .withMotorOutput(
+            new MotorOutputConfigs()
+                .withNeutralMode(NeutralModeValue.Coast)
+                .withInverted(InvertedValue.Clockwise_Positive));
+  }
+
+  static TalonFXConfiguration createHoodConfig() {
+    return new TalonFXConfiguration()
+        .withCurrentLimits(
+            new CurrentLimitsConfigs()
+                .withStatorCurrentLimitEnable(true)
+                .withStatorCurrentLimit(HOOD_STATOR_LIMIT)
+                .withSupplyCurrentLimitEnable(true)
+                .withSupplyCurrentLimit(Amps.of(15.0)))
+        .withVoltage(
+            new VoltageConfigs()
+                .withPeakForwardVoltage(HOOD_MAX_VOLTAGE)
+                .withPeakReverseVoltage(HOOD_MAX_VOLTAGE.unaryMinus()))
+        .withMotorOutput(
+            new MotorOutputConfigs()
+                .withNeutralMode(NeutralModeValue.Brake)
+                .withInverted(InvertedValue.Clockwise_Positive))
+        .withSlot0(
+            new Slot0Configs()
+                .withKP(8.0)
+                .withKD(0.1)
+                .withKG(0.4)
+                .withGravityType(GravityTypeValue.Elevator_Static)
+                .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign));
   }
 
   private static void addSetpoint(double distanceFeet, double flywheelRpm, double hoodRotations) {
