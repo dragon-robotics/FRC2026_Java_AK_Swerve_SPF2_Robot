@@ -14,7 +14,9 @@ import frc.robot.subsystems.vision.VisionIO.PoseObservation;
 import frc.robot.util.constants.FieldConstants;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
@@ -31,7 +33,6 @@ public class Vision extends SubsystemBase {
   private final DoubleSupplier nowSeconds;
   private final Runnable beforeCameraInputs;
 
-  @SuppressWarnings("unused")
   private final boolean releaseStartupStrategyOnInitialization;
 
   private final VisionIO[] io;
@@ -48,7 +49,61 @@ public class Vision extends SubsystemBase {
   private final List<Pose3d> acceptedTagToPoseLines = new ArrayList<>();
   private List<Candidate> coherentCandidates = List.of();
   private Optional<Candidate> selectedConsensusCandidate = Optional.empty();
+  private final Map<String, InitializationState> initializationByCamera = new HashMap<>();
+  private AcceptedObservationSnapshot latestAcceptedObservationSnapshot;
+  private boolean initializationComplete;
+  private boolean autoReseededThisDisabledPeriod;
+  private double lastAutomaticReseedTimeSeconds = Double.NEGATIVE_INFINITY;
+  private boolean automaticReseedSucceeded;
+  private boolean manualReseedSucceeded;
+  private Pose2d reseedPose = Pose2d.kZero;
+  private double reseedDeltaMeters;
+  private double reseedTimestampSeconds;
+  private String reseedRejectionReason = "";
   private boolean aiming;
+
+  /** Immutable copy of the most recently selected observation used for operator recovery. */
+  public record AcceptedObservationSnapshot(Pose2d pose, int[] tagIds, double timestampSeconds) {
+    public AcceptedObservationSnapshot {
+      tagIds = Arrays.copyOf(tagIds, tagIds.length);
+    }
+
+    @Override
+    public int[] tagIds() {
+      return Arrays.copyOf(tagIds, tagIds.length);
+    }
+  }
+
+  /** Per-camera stable multitag streak state. */
+  static final class InitializationState {
+    private Pose2d lastPose;
+    private double lastTimestampSeconds = Double.NEGATIVE_INFINITY;
+    private int stablePoseCount;
+
+    int observe(Pose2d pose, double timestampSeconds) {
+      boolean stable = true;
+      if (lastPose != null) {
+        double translationDeltaMeters =
+            pose.getTranslation().getDistance(lastPose.getTranslation());
+        double headingDeltaDegrees =
+            Math.abs(pose.getRotation().minus(lastPose.getRotation()).getDegrees());
+        stable =
+            timestampSeconds > lastTimestampSeconds
+                && translationDeltaMeters
+                    <= VisionConstants.MULTITAG_INIT_MAX_TRANSLATION_DELTA_METERS
+                && headingDeltaDegrees <= VisionConstants.MULTITAG_INIT_MAX_HEADING_DELTA_DEGREES;
+      }
+
+      stablePoseCount = stable ? stablePoseCount + 1 : 1;
+      lastPose = pose;
+      lastTimestampSeconds = timestampSeconds;
+      return stablePoseCount;
+    }
+
+    int stablePoseCount() {
+      return stablePoseCount;
+    }
+  }
 
   public Vision(
       VisionDriveBindings drive,
@@ -100,6 +155,41 @@ public class Vision extends SubsystemBase {
     this.aiming = aiming;
   }
 
+  /** Returns the latest selected observation while it is no more than 0.5 seconds old. */
+  public Optional<AcceptedObservationSnapshot> getLatestAcceptedObservationSnapshot() {
+    return snapshotAt(nowSeconds.getAsDouble());
+  }
+
+  /** Resets only the drivetrain estimator from any fresh selected observation. */
+  public boolean forceReseedFromVision() {
+    Optional<AcceptedObservationSnapshot> snapshot = snapshotAt(nowSeconds.getAsDouble());
+    if (snapshot.isEmpty()) {
+      manualReseedSucceeded = false;
+      reseedRejectionReason = "NO_SNAPSHOT";
+      recordReseedOutputs();
+      return false;
+    }
+
+    AcceptedObservationSnapshot accepted = snapshot.orElseThrow();
+    Pose2d currentPose = drive.currentPose().get();
+    manualReseedSucceeded = true;
+    reseedPose = accepted.pose();
+    reseedDeltaMeters = currentPose.getTranslation().getDistance(accepted.pose().getTranslation());
+    reseedTimestampSeconds = accepted.timestampSeconds();
+    reseedRejectionReason = "";
+    drive.estimatorReset().accept(accepted.pose());
+    recordReseedOutputs();
+    return true;
+  }
+
+  Optional<InitializationState> initializationState(String cameraName) {
+    return Optional.ofNullable(initializationByCamera.get(cameraName));
+  }
+
+  boolean isInitializationComplete() {
+    return initializationComplete;
+  }
+
   @Override
   public void periodic() {
     long loopStartNanoseconds = System.nanoTime();
@@ -118,8 +208,9 @@ public class Vision extends SubsystemBase {
     for (int cameraIndex = 0; cameraIndex < io.length; cameraIndex++) {
       processCameraObservations(cameraIndex, now, isDisabled, pitchDegrees, rollDegrees);
     }
-    selectAndConsume(now);
-    recordOutputs(speeds, (System.nanoTime() - loopStartNanoseconds) / 1_000_000.0);
+    selectAndConsume(now, isDisabled);
+    maybeAutomaticallyReseed(now, isDisabled);
+    recordOutputs(now, speeds, (System.nanoTime() - loopStartNanoseconds) / 1_000_000.0);
   }
 
   private void clearLoopState() {
@@ -131,6 +222,12 @@ public class Vision extends SubsystemBase {
     acceptedTagToPoseLines.clear();
     coherentCandidates = List.of();
     selectedConsensusCandidate = Optional.empty();
+    automaticReseedSucceeded = false;
+    manualReseedSucceeded = false;
+    reseedPose = Pose2d.kZero;
+    reseedDeltaMeters = 0.0;
+    reseedTimestampSeconds = 0.0;
+    reseedRejectionReason = "";
     for (CameraLoopLog cameraLog : cameraLogs) {
       cameraLog.clear();
     }
@@ -220,7 +317,7 @@ public class Vision extends SubsystemBase {
     }
   }
 
-  private void selectAndConsume(double now) {
+  private void selectAndConsume(double now, boolean isDisabled) {
     VisionConsensus.TemporalSelection temporalSelection =
         VisionConsensus.selectTimestampCoherent(candidates, now);
     coherentCandidates = temporalSelection.selectedCandidates();
@@ -278,6 +375,108 @@ public class Vision extends SubsystemBase {
             winner.visionPose(),
             winner.observation().timestampSeconds(),
             winner.standardDeviations());
+    updateInitialization(winner);
+    updateLatestAcceptedSnapshot(winner, isDisabled);
+  }
+
+  private void updateInitialization(Candidate winner) {
+    if (initializationComplete
+        || winner.observation().type()
+            != VisionIO.PoseObservationType.PHOTONVISION_MULTITAG_COPROCESSOR
+        || winner.observation().tagCount() < VisionConstants.DISABLED_AUTO_RESEED_MIN_TAG_COUNT) {
+      return;
+    }
+
+    InitializationState state =
+        initializationByCamera.computeIfAbsent(
+            winner.cameraName(), unused -> new InitializationState());
+    int stablePoseCount =
+        state.observe(winner.visionPose(), winner.observation().timestampSeconds());
+    if (stablePoseCount >= VisionConstants.MULTITAG_INIT_STABLE_POSES_REQUIRED) {
+      markInitializationComplete();
+    }
+  }
+
+  private void updateLatestAcceptedSnapshot(Candidate winner, boolean isDisabled) {
+    PoseObservation observation = winner.observation();
+    boolean allowedWhileDisabled =
+        observation.type() == VisionIO.PoseObservationType.PHOTONVISION_MULTITAG_COPROCESSOR;
+    if ((!isDisabled || allowedWhileDisabled)
+        && (latestAcceptedObservationSnapshot == null
+            || observation.timestampSeconds()
+                > latestAcceptedObservationSnapshot.timestampSeconds())) {
+      latestAcceptedObservationSnapshot =
+          new AcceptedObservationSnapshot(
+              winner.visionPose(), observation.tagIds(), observation.timestampSeconds());
+    }
+  }
+
+  private void maybeAutomaticallyReseed(double now, boolean isDisabled) {
+    if (!isDisabled) {
+      autoReseededThisDisabledPeriod = false;
+      return;
+    }
+
+    Optional<AcceptedObservationSnapshot> availableSnapshot = snapshotAt(now);
+    if (availableSnapshot.isEmpty()) {
+      reseedRejectionReason = "NO_SNAPSHOT";
+      return;
+    }
+
+    AcceptedObservationSnapshot snapshot = availableSnapshot.orElseThrow();
+    if (snapshot.tagIds().length < VisionConstants.DISABLED_AUTO_RESEED_MIN_TAG_COUNT) {
+      reseedRejectionReason = "NEEDS_MULTITAG";
+      return;
+    }
+
+    Pose2d currentPose = drive.currentPose().get();
+    double deltaMeters = currentPose.getTranslation().getDistance(snapshot.pose().getTranslation());
+    boolean initialResetEligible = !autoReseededThisDisabledPeriod;
+    boolean drifted = deltaMeters > VisionConstants.DISABLED_AUTO_RESEED_DELTA_METERS;
+    if (!initialResetEligible && !drifted) {
+      reseedRejectionReason = "BELOW_DRIFT_THRESHOLD";
+      return;
+    }
+
+    if ((now - lastAutomaticReseedTimeSeconds)
+        < VisionConstants.DISABLED_AUTO_RESEED_MIN_INTERVAL_SECONDS) {
+      reseedRejectionReason = "COOLDOWN";
+      return;
+    }
+
+    markInitializationComplete();
+    drive.estimatorReset().accept(snapshot.pose());
+    autoReseededThisDisabledPeriod = true;
+    lastAutomaticReseedTimeSeconds = now;
+    automaticReseedSucceeded = true;
+    reseedPose = snapshot.pose();
+    reseedDeltaMeters = deltaMeters;
+    reseedTimestampSeconds = snapshot.timestampSeconds();
+    reseedRejectionReason = "";
+  }
+
+  private void markInitializationComplete() {
+    if (initializationComplete) {
+      return;
+    }
+    initializationComplete = true;
+    if (releaseStartupStrategyOnInitialization) {
+      for (VisionIO cameraIO : io) {
+        cameraIO.markVisionInitializationComplete();
+      }
+    }
+  }
+
+  private Optional<AcceptedObservationSnapshot> snapshotAt(double now) {
+    if (latestAcceptedObservationSnapshot == null
+        || now - latestAcceptedObservationSnapshot.timestampSeconds()
+            > VisionConstants.SNAPSHOT_MAX_AGE_SECONDS) {
+      return Optional.empty();
+    }
+    AcceptedObservationSnapshot snapshot = latestAcceptedObservationSnapshot;
+    return Optional.of(
+        new AcceptedObservationSnapshot(
+            snapshot.pose(), snapshot.tagIds(), snapshot.timestampSeconds()));
   }
 
   private void reject(
@@ -291,7 +490,7 @@ public class Vision extends SubsystemBase {
     }
   }
 
-  private void recordOutputs(ChassisSpeeds speeds, double loopExecutionMilliseconds) {
+  private void recordOutputs(double now, ChassisSpeeds speeds, double loopExecutionMilliseconds) {
     for (int cameraIndex = 0; cameraIndex < cameraNames.length; cameraIndex++) {
       String key = "Vision/" + cameraNames[cameraIndex] + "/";
       CameraLoopLog cameraLog = cameraLogs[cameraIndex];
@@ -315,6 +514,11 @@ public class Vision extends SubsystemBase {
       Logger.recordOutput(key + "InnovationMeters", cameraLog.innovationMeters);
       Logger.recordOutput(
           key + "InnovationBypassedInDisabledMeters", cameraLog.innovationBypassedInDisabledMeters);
+      Logger.recordOutput(
+          "Vision/Initialization/" + cameraNames[cameraIndex] + "/StablePoseCount",
+          initializationState(cameraNames[cameraIndex])
+              .map(InitializationState::stablePoseCount)
+              .orElse(0));
     }
 
     Optional<Candidate> selected = selectedConsensusCandidate;
@@ -355,6 +559,27 @@ public class Vision extends SubsystemBase {
             .orElse(""));
     Logger.recordOutput(
         "Vision/Config/TagDistanceConfidenceMode", config.tagDistanceConfidenceMode().name());
+    Logger.recordOutput("Vision/Initialization/Complete", initializationComplete);
+    Logger.recordOutput(
+        "Vision/Snapshot/AgeSeconds",
+        latestAcceptedObservationSnapshot == null
+            ? 0.0
+            : now - latestAcceptedObservationSnapshot.timestampSeconds());
+    Logger.recordOutput(
+        "Vision/Snapshot/TagIDs",
+        latestAcceptedObservationSnapshot == null
+            ? NO_TAG_IDS
+            : latestAcceptedObservationSnapshot.tagIds());
+    recordReseedOutputs();
+  }
+
+  private void recordReseedOutputs() {
+    Logger.recordOutput("Vision/Reseed/AutomaticSucceeded", automaticReseedSucceeded);
+    Logger.recordOutput("Vision/Reseed/ManualSucceeded", manualReseedSucceeded);
+    Logger.recordOutput("Vision/Reseed/Pose", reseedPose);
+    Logger.recordOutput("Vision/Reseed/DeltaMeters", reseedDeltaMeters);
+    Logger.recordOutput("Vision/Reseed/TimestampSeconds", reseedTimestampSeconds);
+    Logger.recordOutput("Vision/Reseed/RejectionReason", reseedRejectionReason);
   }
 
   private static int clusterSize(Candidate candidate, List<Candidate> coherentCandidates) {
