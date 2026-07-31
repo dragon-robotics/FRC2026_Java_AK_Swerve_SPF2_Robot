@@ -230,6 +230,49 @@ class IntakeIOSimTest {
   }
 
   @Test
+  void activeHighSpeedReversalRemainsConsistentThroughRegenerationAndMotoring() {
+    IntakeIOSim io = new IntakeIOSim();
+    IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
+    io.setRollerVoltage(Volts.of(12.0));
+    update(io, inputs, 200);
+
+    io.setRollerVoltage(Volts.of(-12.0));
+    RotorSpeeds initialSpeeds = captureRotorSpeeds(inputs);
+    io.updateInputs(inputs);
+    PhysicalStatorCurrents initialStatorCurrents =
+        calculatePhysicalStatorCurrents(inputs, initialSpeeds);
+
+    assertAll(
+        "initial active-reversal cycle",
+        () -> assertTrue(RoboRioSim.getVInVoltage() > 12.0, "regenerative bus voltage"),
+        () -> assertPhysicalCurrentLimits(inputs, initialSpeeds),
+        () -> assertBatteryMatchesAppliedCycle(inputs, initialSpeeds),
+        () -> assertTrue(inputs.rollerLeadAppliedVolts > 0.0, "lead regenerative voltage"),
+        () -> assertTrue(inputs.rollerFollowerAppliedVolts < 0.0, "follower regenerative voltage"),
+        () -> assertTrue(initialStatorCurrents.rollerLeadAmps() < 0.0, "lead braking current"),
+        () ->
+            assertTrue(
+                initialStatorCurrents.rollerFollowerAmps() > 0.0, "follower braking current"));
+
+    boolean sawMotoringBatteryLoad = false;
+    for (int cycle = 1; cycle < 100; cycle++) {
+      RotorSpeeds previousSpeeds = captureRotorSpeeds(inputs);
+      io.updateInputs(inputs);
+      PhysicalStatorCurrents statorCurrents =
+          calculatePhysicalStatorCurrents(inputs, previousSpeeds);
+
+      assertPhysicalCurrentLimits(inputs, previousSpeeds);
+      assertBatteryMatchesAppliedCycle(inputs, previousSpeeds);
+      assertEquals(-inputs.rollerLeadAppliedVolts, inputs.rollerFollowerAppliedVolts, 1e-9);
+      assertEquals(-statorCurrents.rollerLeadAmps(), statorCurrents.rollerFollowerAmps(), 1e-6);
+      assertEquals(-inputs.rollerLeadVelocityRpm, inputs.rollerFollowerVelocityRpm, 1e-6);
+      sawMotoringBatteryLoad |= RoboRioSim.getVInVoltage() < 12.0 - 1e-9;
+    }
+
+    assertTrue(sawMotoringBatteryLoad, "reversal transitioned from regeneration to motoring");
+  }
+
+  @Test
   void cancoderTracksArmPositionAndVelocityAfterMotion() {
     IntakeIOSim io = new IntakeIOSim();
     IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
@@ -262,36 +305,36 @@ class IntakeIOSimTest {
 
   private static void assertPhysicalCurrentLimits(
       IntakeIO.IntakeIOInputs inputs, RotorSpeeds previousSpeeds) {
-    PhysicalCurrents currents = calculatePhysicalCurrents(inputs, previousSpeeds);
-    assertTrue(currents.rollerLeadAmps() <= 80.0 + 1e-6, "roller lead physical stator current");
+    PhysicalStatorCurrents currents = calculatePhysicalStatorCurrents(inputs, previousSpeeds);
     assertTrue(
-        currents.rollerFollowerAmps() <= 80.0 + 1e-6, "roller follower physical stator current");
-    assertTrue(currents.armAmps() <= 50.0 + 1e-6, "arm physical stator current");
+        Math.abs(currents.rollerLeadAmps()) <= 80.0 + 1e-6, "roller lead physical stator current");
+    assertTrue(
+        Math.abs(currents.rollerFollowerAmps()) <= 80.0 + 1e-6,
+        "roller follower physical stator current");
+    assertTrue(Math.abs(currents.armAmps()) <= 50.0 + 1e-6, "arm physical stator current");
   }
 
   private static void assertBatteryMatchesAppliedCycle(
       IntakeIO.IntakeIOInputs inputs, RotorSpeeds previousSpeeds) {
-    PhysicalCurrents currents = calculatePhysicalCurrents(inputs, previousSpeeds);
+    PhysicalStatorCurrents currents = calculatePhysicalStatorCurrents(inputs, previousSpeeds);
     assertEquals(
         BatterySim.calculateDefaultBatteryLoadedVoltage(
-            currents.rollerLeadAmps(), currents.rollerFollowerAmps(), currents.armAmps()),
+            currents.rollerLeadAmps() * Math.signum(inputs.rollerLeadAppliedVolts),
+            currents.rollerFollowerAmps() * Math.signum(inputs.rollerFollowerAppliedVolts),
+            currents.armAmps() * Math.signum(inputs.armAppliedVolts)),
         RoboRioSim.getVInVoltage(),
         1e-9);
   }
 
-  private static PhysicalCurrents calculatePhysicalCurrents(
+  private static PhysicalStatorCurrents calculatePhysicalStatorCurrents(
       IntakeIO.IntakeIOInputs inputs, RotorSpeeds previousSpeeds) {
-    return new PhysicalCurrents(
-        Math.abs(
-            IntakeConstants.ROLLER_SIM_MOTOR.getCurrent(
-                previousSpeeds.rollerLeadRadiansPerSecond(), inputs.rollerLeadAppliedVolts)),
-        Math.abs(
-            IntakeConstants.ROLLER_SIM_MOTOR.getCurrent(
-                previousSpeeds.rollerFollowerRadiansPerSecond(),
-                inputs.rollerFollowerAppliedVolts)),
-        Math.abs(
-            IntakeConstants.ARM_SIM_MOTOR.getCurrent(
-                previousSpeeds.armRadiansPerSecond(), inputs.armAppliedVolts)));
+    return new PhysicalStatorCurrents(
+        IntakeConstants.ROLLER_SIM_MOTOR.getCurrent(
+            previousSpeeds.rollerLeadRadiansPerSecond(), inputs.rollerLeadAppliedVolts),
+        IntakeConstants.ROLLER_SIM_MOTOR.getCurrent(
+            previousSpeeds.rollerFollowerRadiansPerSecond(), inputs.rollerFollowerAppliedVolts),
+        IntakeConstants.ARM_SIM_MOTOR.getCurrent(
+            previousSpeeds.armRadiansPerSecond(), inputs.armAppliedVolts));
   }
 
   private record RotorSpeeds(
@@ -299,7 +342,7 @@ class IntakeIOSimTest {
       double rollerFollowerRadiansPerSecond,
       double armRadiansPerSecond) {}
 
-  private record PhysicalCurrents(
+  private record PhysicalStatorCurrents(
       double rollerLeadAmps, double rollerFollowerAmps, double armAmps) {}
 
   private static IntakeIO.IntakeIOInputs inputsWithDistinctSentinels() {
