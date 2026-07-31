@@ -60,15 +60,18 @@ public class Shooter extends SubsystemBase {
   }
 
   public void setDesiredState(ShooterState state) {
-    desiredState = Objects.requireNonNull(state);
+    Objects.requireNonNull(state);
     if (state == ShooterState.TRANSITION)
       throw new IllegalArgumentException("TRANSITION cannot be desired");
+    desiredState = state;
     if (state != currentState) currentState = ShooterState.TRANSITION;
   }
 
   public void setSetpoint(double flywheelRpm, double hoodRotations) {
+    boolean changed = targetRpm != flywheelRpm || targetHoodRotations != hoodRotations;
     targetRpm = flywheelRpm;
     targetHoodRotations = hoodRotations;
+    if (changed && desiredState == ShooterState.SHOOT) currentState = ShooterState.TRANSITION;
   }
 
   public void setSetpointForDistance(double distanceMeters) {

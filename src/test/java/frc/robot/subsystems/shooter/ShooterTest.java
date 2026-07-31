@@ -221,4 +221,35 @@ class ShooterTest {
     assertThrows(
         IllegalArgumentException.class, () -> shooter.setDesiredState(ShooterState.TRANSITION));
   }
+
+  @Test
+  void rejectedTransitionRequestLeavesDesiredStateUsable() {
+    RecordingIO io = new RecordingIO();
+    Shooter shooter = new Shooter(io);
+
+    assertThrows(
+        IllegalArgumentException.class, () -> shooter.setDesiredState(ShooterState.TRANSITION));
+
+    assertEquals(ShooterState.STOP, shooter.getDesiredState());
+    assertDoesNotThrow(shooter::periodic);
+    assertEquals(ShooterState.STOP, shooter.getCurrentState());
+  }
+
+  @Test
+  void changedShootSetpointReturnsToTransitionUntilNewTargetIsReady() {
+    RecordingIO io = new RecordingIO();
+    Shooter shooter = new Shooter(io);
+    shooter.periodic();
+    shooter.setDesiredState(ShooterState.SHOOT);
+    io.measuredFlywheelRpm = 2500.0;
+    shooter.periodic();
+    shooter.periodic();
+    assertEquals(12.0, io.kickerVolts, 1e-9);
+
+    shooter.setSetpoint(3000.0, 1.0);
+    shooter.periodic();
+
+    assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
+    assertEquals(6.0, io.kickerVolts, 1e-9);
+  }
 }
