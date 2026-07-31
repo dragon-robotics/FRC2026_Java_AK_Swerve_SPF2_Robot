@@ -468,7 +468,8 @@ Transition to PREPFUEL when `isFlywheelReadyFor(1200.0)` is true.
 
 `transitionToShoot()` commands selected RPM, selected hood rotations, and kicker 6 V. It selects
 SHOOT only when `isFlywheelReadyFor(targetRpm)` and
-`MathUtil.isNear(targetHoodRotations, inputs.hoodPositionRotations, 0.125)` are both true.
+`Math.abs(targetHoodRotations - inputs.hoodPositionRotations)
+<= HOOD_READY_TOLERANCE_ROTATIONS` are both true.
 Steady SHOOT repeats flywheel and hood closed-loop requests and commands kicker 12 V.
 
 `setDesiredState()` accepts only STOP, PREPFUEL, and SHOOT. Reject `null` with
