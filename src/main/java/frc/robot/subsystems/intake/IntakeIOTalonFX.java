@@ -41,6 +41,8 @@ public class IntakeIOTalonFX implements IntakeIO {
   private final StatusSignal<Angle> rollerLeadPosition = rollerLead.getPosition();
   private final StatusSignal<AngularVelocity> rollerLeadVelocity = rollerLead.getVelocity();
   private final StatusSignal<Voltage> rollerLeadVoltage = rollerLead.getMotorVoltage();
+  private final StatusSignal<Double> rollerLeadDutyCycle = rollerLead.getDutyCycle();
+  private final StatusSignal<Current> rollerLeadTorqueCurrent = rollerLead.getTorqueCurrent();
   private final StatusSignal<Current> rollerLeadCurrent = rollerLead.getStatorCurrent();
   private final StatusSignal<Temperature> rollerLeadTemperature = rollerLead.getDeviceTemp();
   private final StatusSignal<Angle> rollerFollowerPosition = rollerFollower.getPosition();
@@ -58,6 +60,8 @@ public class IntakeIOTalonFX implements IntakeIO {
   private final StatusSignal<Angle> armCancoderAbsolutePosition = armCancoder.getAbsolutePosition();
   private final StatusSignal<AngularVelocity> armCancoderVelocity = armCancoder.getVelocity();
 
+  private final BaseStatusSignal[] followerSourceSignals =
+      createFollowerSourceSignals(rollerLeadVoltage, rollerLeadDutyCycle, rollerLeadTorqueCurrent);
   private final BaseStatusSignal[] temperatureRefreshSignals =
       createTemperatureRefreshSignals(
           rollerLeadTemperature, rollerFollowerTemperature, armTemperature);
@@ -90,7 +94,6 @@ public class IntakeIOTalonFX implements IntakeIO {
         statusFrequencies.mechanismHz(),
         rollerLeadPosition,
         rollerLeadVelocity,
-        rollerLeadVoltage,
         rollerLeadCurrent,
         rollerFollowerPosition,
         rollerFollowerVelocity,
@@ -103,6 +106,8 @@ public class IntakeIOTalonFX implements IntakeIO {
         armCancoderPosition,
         armCancoderAbsolutePosition,
         armCancoderVelocity);
+    BaseStatusSignal.setUpdateFrequencyForAll(
+        statusFrequencies.mechanismHz(), followerSourceSignals);
     BaseStatusSignal.setUpdateFrequencyForAll(
         statusFrequencies.temperatureHz(),
         rollerLeadTemperature,
@@ -159,6 +164,13 @@ public class IntakeIOTalonFX implements IntakeIO {
       StatusSignal<Temperature> rollerFollower,
       StatusSignal<Temperature> arm) {
     return new BaseStatusSignal[] {rollerLead, rollerFollower, arm};
+  }
+
+  static BaseStatusSignal[] createFollowerSourceSignals(
+      StatusSignal<Voltage> voltage,
+      StatusSignal<Double> dutyCycle,
+      StatusSignal<Current> torqueCurrent) {
+    return new BaseStatusSignal[] {voltage, dutyCycle, torqueCurrent};
   }
 
   static BaseStatusSignal[] createCancoderRefreshSignals(
