@@ -9,8 +9,12 @@ import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 import frc.robot.subsystems.intake.Intake.IntakeState;
 import frc.robot.subsystems.intake.Intake.JuicerPhase;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 class IntakeTest {
   @BeforeAll
@@ -18,8 +22,24 @@ class IntakeTest {
     HAL.initialize(500, 0);
   }
 
+  private enum RollerMode {
+    VOLTAGE,
+    DUTY_CYCLE,
+    TORQUE_CURRENT
+  }
+
+  private enum ArmMode {
+    POSITION,
+    VOLTAGE,
+    DUTY_CYCLE,
+    TORQUE_CURRENT,
+    BRAKE
+  }
+
   private static final class RecordingIO implements IntakeIO {
     double measuredArmRotations;
+    RollerMode activeRollerMode;
+    ArmMode activeArmMode;
     Double rollerVolts;
     Double rollerDutyCycle;
     Double rollerTorqueAmps;
@@ -29,8 +49,19 @@ class IntakeTest {
     Double armVolts;
     Double armDutyCycle;
     Double armTorqueAmps;
+    final List<String> events = new ArrayList<>();
+    int rollerVoltageCalls;
+    int rollerDutyCycleCalls;
+    int rollerTorqueCurrentCalls;
+    int armVoltageCalls;
+    int armDutyCycleCalls;
+    int armTorqueCurrentCalls;
     int armBrakeNeutralCalls;
     int armPositionCalls;
+
+    void clearEvents() {
+      events.clear();
+    }
 
     @Override
     public void updateInputs(IntakeIOInputs inputs) {
@@ -39,45 +70,67 @@ class IntakeTest {
 
     @Override
     public void setRollerVoltage(Voltage voltage) {
+      activeRollerMode = RollerMode.VOLTAGE;
       rollerVolts = voltage.in(Volts);
+      rollerVoltageCalls++;
+      events.add("rollerVoltage");
     }
 
     @Override
     public void setRollerDutyCycle(double output) {
+      activeRollerMode = RollerMode.DUTY_CYCLE;
       rollerDutyCycle = output;
+      rollerDutyCycleCalls++;
+      events.add("rollerDutyCycle");
     }
 
     @Override
     public void setRollerTorqueCurrent(Current current, double maxAbsDutyCycle) {
+      activeRollerMode = RollerMode.TORQUE_CURRENT;
       rollerTorqueAmps = current.in(Amps);
       rollerMaxDuty = maxAbsDutyCycle;
+      rollerTorqueCurrentCalls++;
+      events.add("rollerTorqueCurrent");
     }
 
     @Override
     public void setArmPosition(double rotations, int slot) {
+      activeArmMode = ArmMode.POSITION;
       armPositionRotations = rotations;
       armSlot = slot;
       armPositionCalls++;
+      events.add("armPosition");
     }
 
     @Override
     public void setArmVoltage(Voltage voltage) {
+      activeArmMode = ArmMode.VOLTAGE;
       armVolts = voltage.in(Volts);
+      armVoltageCalls++;
+      events.add("armVoltage");
     }
 
     @Override
     public void setArmDutyCycle(double output) {
+      activeArmMode = ArmMode.DUTY_CYCLE;
       armDutyCycle = output;
+      armDutyCycleCalls++;
+      events.add("armDutyCycle");
     }
 
     @Override
     public void setArmTorqueCurrent(Current current) {
+      activeArmMode = ArmMode.TORQUE_CURRENT;
       armTorqueAmps = current.in(Amps);
+      armTorqueCurrentCalls++;
+      events.add("armTorqueCurrent");
     }
 
     @Override
     public void setArmBrakeNeutral() {
+      activeArmMode = ArmMode.BRAKE;
       armBrakeNeutralCalls++;
+      events.add("armBrakeNeutral");
     }
   }
 
@@ -116,6 +169,9 @@ class IntakeTest {
 
     assertEquals(IntakeState.DEPLOYED, intake.getCurrentState());
     assertEquals(1, io.armBrakeNeutralCalls);
+    assertEquals(ArmMode.BRAKE, io.activeArmMode);
+    assertNotEquals(ArmMode.POSITION, io.activeArmMode);
+    assertNotEquals(ArmMode.TORQUE_CURRENT, io.activeArmMode);
     assertEquals(0.0, io.rollerVolts, 1e-9);
   }
 
@@ -130,6 +186,60 @@ class IntakeTest {
     intake.periodic();
 
     assertEquals(IntakeState.DEPLOYING, intake.getCurrentState());
+    assertEquals(-6.0, io.rollerVolts, 1e-9);
+  }
+
+  @Test
+  void deployingResendsOnlyRollerOnAutonomousEnabledEdges() {
+    RecordingIO io = new RecordingIO();
+    io.measuredArmRotations = 0.37;
+    AtomicBoolean autonomousEnabled = new AtomicBoolean(true);
+    Intake intake = new Intake(io, autonomousEnabled::get);
+    intake.periodic();
+    io.clearEvents();
+    intake.setDesiredState(IntakeState.INTAKE);
+
+    intake.periodic();
+
+    assertEquals(List.of("armPosition", "rollerVoltage"), io.events);
+    assertEquals(-6.0, io.rollerVolts, 1e-9);
+
+    io.clearEvents();
+    intake.periodic();
+    assertTrue(io.events.isEmpty());
+
+    autonomousEnabled.set(false);
+    intake.periodic();
+    assertEquals(List.of("rollerVoltage"), io.events);
+    assertEquals(0.0, io.rollerVolts, 1e-9);
+
+    io.clearEvents();
+    intake.periodic();
+    assertTrue(io.events.isEmpty());
+
+    autonomousEnabled.set(true);
+    intake.periodic();
+    assertEquals(List.of("rollerVoltage"), io.events);
+    assertEquals(-6.0, io.rollerVolts, 1e-9);
+  }
+
+  @Test
+  void deploymentOutputEdgeTrackingResetsOnReentry() {
+    RecordingIO io = new RecordingIO();
+    io.measuredArmRotations = 0.37;
+    AtomicBoolean autonomousEnabled = new AtomicBoolean(true);
+    Intake intake = new Intake(io, autonomousEnabled::get);
+    intake.periodic();
+    intake.setDesiredState(IntakeState.INTAKE);
+    intake.periodic();
+
+    intake.setDesiredState(IntakeState.HOME);
+    intake.periodic();
+    io.clearEvents();
+    intake.setDesiredState(IntakeState.INTAKE);
+    intake.periodic();
+
+    assertEquals(List.of("armPosition", "rollerVoltage"), io.events);
     assertEquals(-6.0, io.rollerVolts, 1e-9);
   }
 
@@ -206,7 +316,15 @@ class IntakeTest {
     assertEquals(-80.0, io.rollerTorqueAmps, 1e-9);
     assertEquals(0.80, io.rollerMaxDuty, 1e-9);
     assertEquals(1, io.armBrakeNeutralCalls);
+    assertEquals(ArmMode.BRAKE, io.activeArmMode);
+    assertNotEquals(ArmMode.POSITION, io.activeArmMode);
+    assertNotEquals(ArmMode.TORQUE_CURRENT, io.activeArmMode);
     assertNull(io.armTorqueAmps);
+
+    io.clearEvents();
+    intake.periodic();
+    assertTrue(io.events.isEmpty());
+    assertEquals(ArmMode.BRAKE, io.activeArmMode);
   }
 
   @Test
@@ -229,6 +347,40 @@ class IntakeTest {
     intake.periodic();
 
     assertEquals(JuicerPhase.SQUEEZE, intake.getJuicerPhase());
+    assertEquals(0.25, io.armPositionRotations, 1e-9);
+    assertEquals(1, io.armSlot);
+  }
+
+  @Test
+  void juicerReentryRestartsPreJuiceForOneCycleBeforeSqueezingAgain() {
+    RecordingIO io = new RecordingIO();
+    io.measuredArmRotations = 0.0;
+    Intake intake = new Intake(io, () -> false);
+    intake.periodic();
+    intake.setDesiredState(IntakeState.JUICER);
+    intake.periodic();
+    io.measuredArmRotations = 0.15;
+    intake.periodic();
+    assertEquals(JuicerPhase.SQUEEZE, intake.getJuicerPhase());
+
+    intake.setDesiredState(IntakeState.DEPLOYED);
+    intake.periodic();
+    io.clearEvents();
+    intake.setDesiredState(IntakeState.JUICER);
+
+    intake.periodic();
+
+    assertEquals(JuicerPhase.PRE_JUICE, intake.getJuicerPhase());
+    assertEquals(List.of("rollerTorqueCurrent", "armPosition"), io.events);
+    assertEquals(80.0, io.rollerTorqueAmps, 1e-9);
+    assertEquals(0.50, io.rollerMaxDuty, 1e-9);
+    assertEquals(0.15, io.armPositionRotations, 1e-9);
+    assertEquals(0, io.armSlot);
+
+    io.clearEvents();
+    intake.periodic();
+    assertEquals(JuicerPhase.SQUEEZE, intake.getJuicerPhase());
+    assertEquals(List.of("armPosition"), io.events);
     assertEquals(0.25, io.armPositionRotations, 1e-9);
     assertEquals(1, io.armSlot);
   }
@@ -303,11 +455,14 @@ class IntakeTest {
     intake.setDesiredState(IntakeState.DEPLOYED);
     intake.periodic();
     int brakeCalls = io.armBrakeNeutralCalls;
+    io.clearEvents();
 
     intake.setDesiredState(IntakeState.DEPLOYED);
     intake.periodic();
 
     assertEquals(brakeCalls, io.armBrakeNeutralCalls);
+    assertTrue(io.events.isEmpty());
+    assertEquals(ArmMode.BRAKE, io.activeArmMode);
   }
 
   @Test
@@ -364,5 +519,29 @@ class IntakeTest {
     assertEquals(0.37, io.armPositionRotations, 1e-9);
     assertEquals(1, io.armSlot);
     assertEquals(1, io.armBrakeNeutralCalls);
+  }
+
+  @Test
+  void nonFiniteDirectControlsAreRejectedBeforeAnyIoCall() {
+    RecordingIO io = new RecordingIO();
+    Intake intake = new Intake(io, () -> false);
+
+    for (double invalid :
+        new double[] {Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY}) {
+      assertRejectedWithoutIo(io, () -> intake.runRollerVoltage(Volts.of(invalid)));
+      assertRejectedWithoutIo(io, () -> intake.runRollerPercentage(invalid));
+      assertRejectedWithoutIo(io, () -> intake.runRollerTorqueCurrentFOC(Amps.of(invalid), 0.50));
+      assertRejectedWithoutIo(io, () -> intake.runRollerTorqueCurrentFOC(Amps.of(20.0), invalid));
+      assertRejectedWithoutIo(io, () -> intake.runArmPosition(invalid, 0));
+      assertRejectedWithoutIo(io, () -> intake.runArmVoltage(Volts.of(invalid)));
+      assertRejectedWithoutIo(io, () -> intake.runArmPercentage(invalid));
+      assertRejectedWithoutIo(io, () -> intake.runArmTorqueCurrentFOC(Amps.of(invalid)));
+    }
+  }
+
+  private static void assertRejectedWithoutIo(RecordingIO io, Executable directControlCall) {
+    io.clearEvents();
+    assertThrows(IllegalArgumentException.class, directControlCall);
+    assertTrue(io.events.isEmpty());
   }
 }

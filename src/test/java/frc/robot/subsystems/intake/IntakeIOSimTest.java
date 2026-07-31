@@ -5,6 +5,8 @@ import static edu.wpi.first.units.Units.Volts;
 import static org.junit.jupiter.api.Assertions.*;
 
 import edu.wpi.first.hal.HAL;
+import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.simulation.BatterySim;
 import edu.wpi.first.wpilibj.simulation.RoboRioSim;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -131,6 +133,24 @@ class IntakeIOSimTest {
   }
 
   @Test
+  void rollerDutyCycleUsesLoadedBusVoltageUnderModeledSag() {
+    IntakeIOSim io = new IntakeIOSim();
+    IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
+    double requestedDutyCycle = 0.05;
+    io.setRollerDutyCycle(requestedDutyCycle);
+    RotorSpeeds previousSpeeds = captureRotorSpeeds(inputs);
+
+    io.updateInputs(inputs);
+
+    double loadedBusVolts = RoboRioSim.getVInVoltage();
+    assertTrue(loadedBusVolts < 12.0);
+    assertEquals(requestedDutyCycle, inputs.rollerLeadAppliedVolts / loadedBusVolts, 1e-9);
+    assertEquals(-inputs.rollerLeadAppliedVolts, inputs.rollerFollowerAppliedVolts, 1e-9);
+    assertPhysicalCurrentLimits(inputs, previousSpeeds);
+    assertBatteryMatchesAppliedCycle(inputs, previousSpeeds);
+  }
+
+  @Test
   void armVoltageDutyAndTorqueModesMoveThePhysicalArm() {
     IntakeIOSim io = new IntakeIOSim();
     IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
@@ -153,6 +173,26 @@ class IntakeIOSimTest {
   }
 
   @Test
+  void armDutyCycleUsesLoadedBusVoltageAndMechanismCapUnderModeledSag() {
+    IntakeIOSim io = new IntakeIOSim();
+    IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
+    double requestedDutyCycle = -0.04;
+    io.setArmDutyCycle(requestedDutyCycle);
+    RotorSpeeds previousSpeeds = captureRotorSpeeds(inputs);
+
+    io.updateInputs(inputs);
+
+    double loadedBusVolts = RoboRioSim.getVInVoltage();
+    double uncappedDutyVolts = requestedDutyCycle * loadedBusVolts;
+    assertTrue(loadedBusVolts < 12.0);
+    assertTrue(Math.abs(uncappedDutyVolts) < 10.0);
+    assertEquals(uncappedDutyVolts, inputs.armAppliedVolts, 1e-9);
+    assertTrue(Math.abs(inputs.armAppliedVolts) <= 10.0);
+    assertPhysicalCurrentLimits(inputs, previousSpeeds);
+    assertBatteryMatchesAppliedCycle(inputs, previousSpeeds);
+  }
+
+  @Test
   void combinedLoadSagsBatteryAndClampsEveryAppliedVoltage() {
     IntakeIOSim io = new IntakeIOSim();
     IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
@@ -169,6 +209,24 @@ class IntakeIOSimTest {
     assertTrue(inputs.rollerLeadCurrentAmps <= 80.0 + 1e-6);
     assertTrue(inputs.rollerFollowerCurrentAmps <= 80.0 + 1e-6);
     assertTrue(inputs.armCurrentAmps <= 50.0 + 1e-6);
+  }
+
+  @Test
+  void physicalStatorLimitsConstrainAppliedInputsNotOnlyTelemetry() {
+    IntakeIOSim io = new IntakeIOSim();
+    IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
+    io.setRollerVoltage(Volts.of(12.0));
+    io.setArmVoltage(Volts.of(-10.0));
+
+    for (int cycle = 0; cycle < 25; cycle++) {
+      RotorSpeeds previousSpeeds = captureRotorSpeeds(inputs);
+      io.updateInputs(inputs);
+      assertPhysicalCurrentLimits(inputs, previousSpeeds);
+      assertBatteryMatchesAppliedCycle(inputs, previousSpeeds);
+      assertTrue(inputs.rollerLeadCurrentAmps <= 80.0 + 1e-6);
+      assertTrue(inputs.rollerFollowerCurrentAmps <= 80.0 + 1e-6);
+      assertTrue(inputs.armCurrentAmps <= 50.0 + 1e-6);
+    }
   }
 
   @Test
@@ -191,6 +249,58 @@ class IntakeIOSimTest {
       io.updateInputs(inputs);
     }
   }
+
+  private static RotorSpeeds captureRotorSpeeds(IntakeIO.IntakeIOInputs inputs) {
+    return new RotorSpeeds(
+        Units.rotationsPerMinuteToRadiansPerSecond(inputs.rollerLeadVelocityRpm)
+            * IntakeConstants.ROLLER_SIM_GEARING,
+        Units.rotationsPerMinuteToRadiansPerSecond(inputs.rollerFollowerVelocityRpm)
+            * IntakeConstants.ROLLER_SIM_GEARING,
+        Units.rotationsPerMinuteToRadiansPerSecond(inputs.armVelocityRpm)
+            * IntakeConstants.ARM_GEAR_RATIO);
+  }
+
+  private static void assertPhysicalCurrentLimits(
+      IntakeIO.IntakeIOInputs inputs, RotorSpeeds previousSpeeds) {
+    PhysicalCurrents currents = calculatePhysicalCurrents(inputs, previousSpeeds);
+    assertTrue(currents.rollerLeadAmps() <= 80.0 + 1e-6, "roller lead physical stator current");
+    assertTrue(
+        currents.rollerFollowerAmps() <= 80.0 + 1e-6, "roller follower physical stator current");
+    assertTrue(currents.armAmps() <= 50.0 + 1e-6, "arm physical stator current");
+  }
+
+  private static void assertBatteryMatchesAppliedCycle(
+      IntakeIO.IntakeIOInputs inputs, RotorSpeeds previousSpeeds) {
+    PhysicalCurrents currents = calculatePhysicalCurrents(inputs, previousSpeeds);
+    assertEquals(
+        BatterySim.calculateDefaultBatteryLoadedVoltage(
+            currents.rollerLeadAmps(), currents.rollerFollowerAmps(), currents.armAmps()),
+        RoboRioSim.getVInVoltage(),
+        1e-9);
+  }
+
+  private static PhysicalCurrents calculatePhysicalCurrents(
+      IntakeIO.IntakeIOInputs inputs, RotorSpeeds previousSpeeds) {
+    return new PhysicalCurrents(
+        Math.abs(
+            IntakeConstants.ROLLER_SIM_MOTOR.getCurrent(
+                previousSpeeds.rollerLeadRadiansPerSecond(), inputs.rollerLeadAppliedVolts)),
+        Math.abs(
+            IntakeConstants.ROLLER_SIM_MOTOR.getCurrent(
+                previousSpeeds.rollerFollowerRadiansPerSecond(),
+                inputs.rollerFollowerAppliedVolts)),
+        Math.abs(
+            IntakeConstants.ARM_SIM_MOTOR.getCurrent(
+                previousSpeeds.armRadiansPerSecond(), inputs.armAppliedVolts)));
+  }
+
+  private record RotorSpeeds(
+      double rollerLeadRadiansPerSecond,
+      double rollerFollowerRadiansPerSecond,
+      double armRadiansPerSecond) {}
+
+  private record PhysicalCurrents(
+      double rollerLeadAmps, double rollerFollowerAmps, double armAmps) {}
 
   private static IntakeIO.IntakeIOInputs inputsWithDistinctSentinels() {
     IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();

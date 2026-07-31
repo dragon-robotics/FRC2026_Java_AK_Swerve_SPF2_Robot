@@ -38,6 +38,7 @@ public class Intake extends SubsystemBase {
   private IntakeState lastCommandedState;
   private JuicerPhase juicerPhase = JuicerPhase.PRE_JUICE;
   private JuicerPhase lastJuicerPhase;
+  private Boolean lastDeployingAutonomousEnabled;
 
   public Intake(IntakeIO io) {
     this(io, DriverStation::isAutonomousEnabled);
@@ -85,46 +86,59 @@ public class Intake extends SubsystemBase {
   }
 
   public void runRollerVoltage(Voltage voltage) {
+    double requestedVolts = requireFinite(voltage.in(Volts), "roller voltage");
     io.setRollerVoltage(
         Volts.of(
             MathUtil.clamp(
-                voltage.in(Volts), -ROLLER_MAX_VOLTAGE.in(Volts), ROLLER_MAX_VOLTAGE.in(Volts))));
+                requestedVolts, -ROLLER_MAX_VOLTAGE.in(Volts), ROLLER_MAX_VOLTAGE.in(Volts))));
   }
 
   public void runRollerPercentage(double percentage) {
-    io.setRollerDutyCycle(MathUtil.clamp(percentage, -1.0, 1.0));
+    io.setRollerDutyCycle(
+        MathUtil.clamp(requireFinite(percentage, "roller percentage"), -1.0, 1.0));
   }
 
   public void runRollerTorqueCurrentFOC(Current current, double maxAbsDutyCycle) {
+    double requestedCurrentAmps = requireFinite(current.in(Amps), "roller torque current");
+    double requestedMaxDuty = requireFinite(maxAbsDutyCycle, "roller torque max duty");
     io.setRollerTorqueCurrent(
         Amps.of(
             MathUtil.clamp(
-                current.in(Amps), -ROLLER_STATOR_LIMIT.in(Amps), ROLLER_STATOR_LIMIT.in(Amps))),
-        MathUtil.clamp(maxAbsDutyCycle, 0.0, 1.0));
+                requestedCurrentAmps, -ROLLER_STATOR_LIMIT.in(Amps), ROLLER_STATOR_LIMIT.in(Amps))),
+        MathUtil.clamp(requestedMaxDuty, 0.0, 1.0));
   }
 
   public void runArmPosition(double rotations, int slot) {
     io.setArmPosition(
-        MathUtil.clamp(rotations, ARM_DEPLOYED_ROTATIONS, ARM_STOWED_ROTATIONS),
+        MathUtil.clamp(
+            requireFinite(rotations, "arm position"), ARM_DEPLOYED_ROTATIONS, ARM_STOWED_ROTATIONS),
         MathUtil.clamp(slot, ARM_FAST_SLOT, ARM_SLOW_SLOT));
   }
 
   public void runArmVoltage(Voltage voltage) {
+    double requestedVolts = requireFinite(voltage.in(Volts), "arm voltage");
     io.setArmVoltage(
         Volts.of(
-            MathUtil.clamp(
-                voltage.in(Volts), -ARM_MAX_VOLTAGE.in(Volts), ARM_MAX_VOLTAGE.in(Volts))));
+            MathUtil.clamp(requestedVolts, -ARM_MAX_VOLTAGE.in(Volts), ARM_MAX_VOLTAGE.in(Volts))));
   }
 
   public void runArmPercentage(double percentage) {
-    io.setArmDutyCycle(MathUtil.clamp(percentage, -1.0, 1.0));
+    io.setArmDutyCycle(MathUtil.clamp(requireFinite(percentage, "arm percentage"), -1.0, 1.0));
   }
 
   public void runArmTorqueCurrentFOC(Current current) {
+    double requestedCurrentAmps = requireFinite(current.in(Amps), "arm torque current");
     io.setArmTorqueCurrent(
         Amps.of(
             MathUtil.clamp(
-                current.in(Amps), -ARM_STATOR_LIMIT.in(Amps), ARM_STATOR_LIMIT.in(Amps))));
+                requestedCurrentAmps, -ARM_STATOR_LIMIT.in(Amps), ARM_STATOR_LIMIT.in(Amps))));
+  }
+
+  private static double requireFinite(double value, String controlName) {
+    if (!Double.isFinite(value)) {
+      throw new IllegalArgumentException(controlName + " must be finite");
+    }
+    return value;
   }
 
   public void brakeArm() {
@@ -172,7 +186,10 @@ public class Intake extends SubsystemBase {
     lastCommandedState = null;
     switch (desiredState) {
       case HOME -> currentState = IntakeState.STOWING;
-      case INTAKE, OUTTAKE, DEPLOYED -> currentState = IntakeState.DEPLOYING;
+      case INTAKE, OUTTAKE, DEPLOYED -> {
+        currentState = IntakeState.DEPLOYING;
+        lastDeployingAutonomousEnabled = null;
+      }
       case JUICER -> {
         currentState = IntakeState.JUICER;
         juicerPhase = JuicerPhase.PRE_JUICE;
@@ -205,13 +222,16 @@ public class Intake extends SubsystemBase {
       enterDeployedTargetState();
       return;
     }
-    if (!isStateEntry()) {
-      return;
+    if (isStateEntry()) {
+      deployArm();
+      markStateEntryHandled();
     }
-    deployArm();
-    runRollerVoltage(
-        autonomousSupplier.getAsBoolean() ? AUTONOMOUS_DEPLOY_ROLLER_VOLTAGE : Volts.zero());
-    markStateEntryHandled();
+    boolean autonomousEnabled = autonomousSupplier.getAsBoolean();
+    if (lastDeployingAutonomousEnabled == null
+        || autonomousEnabled != lastDeployingAutonomousEnabled) {
+      runRollerVoltage(autonomousEnabled ? AUTONOMOUS_DEPLOY_ROLLER_VOLTAGE : Volts.zero());
+      lastDeployingAutonomousEnabled = autonomousEnabled;
+    }
   }
 
   private void enterDeployedTargetState() {
@@ -292,6 +312,7 @@ public class Intake extends SubsystemBase {
       }
       lastJuicerPhase = juicerPhase;
       lastCommandedState = IntakeState.JUICER;
+      return;
     }
     if (juicerPhase == JuicerPhase.PRE_JUICE && isArmAtPreJuice()) {
       runArmPosition(ARM_SQUEEZE_ROTATIONS, ARM_SLOW_SLOT);

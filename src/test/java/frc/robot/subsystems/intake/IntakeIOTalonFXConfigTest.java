@@ -1,8 +1,10 @@
 package frc.robot.subsystems.intake;
 
+import static edu.wpi.first.units.Units.Amps;
 import static edu.wpi.first.units.Units.Celsius;
 import static edu.wpi.first.units.Units.RPM;
 import static edu.wpi.first.units.Units.Rotations;
+import static edu.wpi.first.units.Units.Volts;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.ctre.phoenix6.BaseStatusSignal;
@@ -12,7 +14,9 @@ import com.ctre.phoenix6.controls.*;
 import com.ctre.phoenix6.signals.*;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularVelocity;
+import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Temperature;
+import edu.wpi.first.units.measure.Voltage;
 import org.junit.jupiter.api.Test;
 
 class IntakeIOTalonFXConfigTest {
@@ -132,6 +136,17 @@ class IntakeIOTalonFXConfigTest {
     assertArrayEquals(
         new BaseStatusSignal[] {position, absolutePosition, velocity},
         IntakeIOTalonFX.createCancoderRefreshSignals(position, absolutePosition, velocity));
+  }
+
+  @Test
+  void followerSourceGroupIncludesEveryRequiredLeaderOutputSignalInOrder() {
+    StatusSignal<Voltage> voltage = signal(Voltage.class, Volts::of);
+    StatusSignal<Double> dutyCycle = signal(Double.class, value -> value);
+    StatusSignal<Current> torqueCurrent = signal(Current.class, Amps::of);
+
+    assertArrayEquals(
+        new BaseStatusSignal[] {voltage, dutyCycle, torqueCurrent},
+        IntakeIOTalonFX.createFollowerSourceSignals(voltage, dutyCycle, torqueCurrent));
   }
 
   private static <T> StatusSignal<T> signal(
