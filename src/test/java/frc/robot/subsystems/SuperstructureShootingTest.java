@@ -8,6 +8,7 @@ import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
@@ -15,7 +16,9 @@ import frc.robot.subsystems.Superstructure.ShootMode;
 import frc.robot.subsystems.Superstructure.Superstate;
 import frc.robot.subsystems.hopper.Hopper.HopperState;
 import frc.robot.subsystems.intake.Intake.IntakeState;
+import frc.robot.subsystems.shooter.Shooter;
 import frc.robot.subsystems.shooter.Shooter.ShooterState;
+import frc.robot.subsystems.shooter.ShooterIO;
 import frc.robot.util.constants.FieldConstants;
 import frc.robot.util.constants.FieldConstants.FieldZones;
 import java.util.List;
@@ -112,9 +115,14 @@ class SuperstructureShootingTest {
             FieldZones.NEUTRAL_RIGHT_SHOOT,
             FieldZones.NEUTRAL_LEFT_PURGE,
             FieldZones.NEUTRAL_RIGHT_PURGE)) {
-      harness.setPose(harness.poseInside(zone));
+      Pose2d pose = harness.poseInside(zone);
+      harness.setPose(pose);
+      Shooter interpolationReference = new Shooter(new ShooterIO.NoOp());
+      Translation2d aimTarget = SuperstructureTargeting.resolveAimTarget(true, zone, Alliance.Blue);
+      interpolationReference.setSetpointForDistance(pose.getTranslation().getDistance(aimTarget));
+      double expectedRpm = interpolationReference.getTargetRpm();
       harness.superstructure.periodic();
-      assertTrue(harness.shooter.getTargetRpm() > 0.0, zone.name());
+      assertEquals(expectedRpm, harness.shooter.getTargetRpm(), 1e-9, zone.name());
       assertEquals(1.25, harness.shooter.getTargetHoodRotations(), zone.name());
     }
   }

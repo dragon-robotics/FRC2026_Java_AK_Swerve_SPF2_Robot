@@ -112,6 +112,35 @@ class HubShiftUtilTest {
   }
 
   @Test
+  void shiftedStartingInactiveScheduleUsesMirroredEarlyOpenAndCloseBoundaries() {
+    HubShiftUtil.setAllianceWinOverride(() -> Optional.of(true));
+
+    fixedTimer.setTime(9.49);
+    assertTrue(HubShiftUtil.getShiftedShiftInfo().active());
+
+    fixedTimer.setTime(9.50);
+    assertFalse(HubShiftUtil.getShiftedShiftInfo().active());
+
+    fixedTimer.setTime(32.99);
+    assertFalse(HubShiftUtil.getShiftedShiftInfo().active());
+
+    fixedTimer.setTime(33.00);
+    assertTrue(HubShiftUtil.getShiftedShiftInfo().active());
+
+    fixedTimer.setTime(59.49);
+    assertTrue(HubShiftUtil.getShiftedShiftInfo().active());
+
+    fixedTimer.setTime(59.50);
+    assertFalse(HubShiftUtil.getShiftedShiftInfo().active());
+
+    fixedTimer.setTime(82.99);
+    assertFalse(HubShiftUtil.getShiftedShiftInfo().active());
+
+    fixedTimer.setTime(83.00);
+    assertTrue(HubShiftUtil.getShiftedShiftInfo().active());
+  }
+
+  @Test
   void autoIsAlwaysActiveAndDisabledIsInactive() {
     DriverStationSim.setAutonomous(true);
     DriverStationSim.setEnabled(true);

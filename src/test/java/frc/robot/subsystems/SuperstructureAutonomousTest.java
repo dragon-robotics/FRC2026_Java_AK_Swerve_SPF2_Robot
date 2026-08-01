@@ -57,6 +57,27 @@ class SuperstructureAutonomousTest {
   }
 
   @Test
+  void aimedAutonomousShootChangesToJuicerAtInclusiveOnePointFiveSeconds() {
+    harness.setAlliance(AllianceStationID.Blue1);
+    harness.setPose(harness.poseInside(FieldZones.NEUTRAL_LEFT_SHOOT));
+
+    Command command = harness.superstructure.shootWithJuicerDelayCmd();
+    assertTrue(command.getRequirements().contains(harness.drive));
+    harness.run(command);
+    assertEquals(
+        Superstructure.Superstate.SHOOT_WITH_AIM, harness.superstructure.getCurrentState());
+    assertEquals(IntakeState.DEPLOYED, harness.intake.getDesiredState());
+
+    harness.fixedTimer.setTime(1.499);
+    CommandScheduler.getInstance().run();
+    assertEquals(IntakeState.DEPLOYED, harness.intake.getDesiredState());
+
+    harness.fixedTimer.setTime(1.500);
+    CommandScheduler.getInstance().run();
+    assertEquals(IntakeState.JUICER, harness.intake.getDesiredState());
+  }
+
+  @Test
   void aimedAutonomousPurgeUsesOuttakeForTheEntireRun() {
     harness.setAlliance(AllianceStationID.Blue1);
     harness.setPose(harness.poseInside(FieldZones.NEUTRAL_LEFT_PURGE));
