@@ -2,7 +2,11 @@ package frc.robot.subsystems;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import edu.wpi.first.hal.AllianceStationID;
 import edu.wpi.first.hal.HAL;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
@@ -12,6 +16,8 @@ import frc.robot.subsystems.Superstructure.Superstate;
 import frc.robot.subsystems.hopper.Hopper.HopperState;
 import frc.robot.subsystems.intake.Intake.IntakeState;
 import frc.robot.subsystems.shooter.Shooter.ShooterState;
+import frc.robot.util.constants.FieldConstants;
+import frc.robot.util.constants.FieldConstants.FieldZones;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
@@ -99,13 +105,12 @@ class SuperstructureStateCommandTest {
   }
 
   @Test
-  void shootingPreparationStatesLeaveIntakeHeldAndOwnOnlyCoordinatorHopperAndShooter() {
+  void shootingStatesUseTheirFinalTaskFourRequirementsAndLeaveIntakeHeld() {
     harness.run(harness.superstructure.setStateCmd(Superstate.DRIVE));
+    harness.setAlliance(AllianceStationID.Blue1);
+    harness.setPose(new Pose2d(1.0, FieldConstants.FIELD_WIDTH / 2.0, Rotation2d.kZero));
 
-    for (Superstate state :
-        new Superstate[] {
-          Superstate.SHOOT_WITH_AIM, Superstate.SHOOT_NO_AIM, Superstate.MANUAL_SHOOT
-        }) {
+    for (Superstate state : new Superstate[] {Superstate.SHOOT_WITH_AIM, Superstate.SHOOT_NO_AIM}) {
       Command command = harness.superstructure.setStateCmd(state);
       assertEquals(
           Set.of(harness.superstructure, harness.hopper, harness.shooter),
@@ -118,10 +123,28 @@ class SuperstructureStateCommandTest {
       assertEquals(HopperState.STOP, harness.hopper.getDesiredState());
       assertEquals(ShooterState.SHOOT, harness.shooter.getDesiredState());
     }
+
+    Command manualCommand = harness.superstructure.setStateCmd(Superstate.MANUAL_SHOOT);
+    assertEquals(
+        Set.of(harness.superstructure, harness.hopper, harness.shooter, harness.drive),
+        manualCommand.getRequirements());
+
+    harness.run(manualCommand);
+
+    assertEquals(Superstate.MANUAL_SHOOT, harness.superstructure.getCurrentState());
+    assertEquals(IntakeState.DEPLOYED, harness.intake.getDesiredState());
+    assertEquals(HopperState.STOP, harness.hopper.getDesiredState());
+    assertEquals(ShooterState.SHOOT, harness.shooter.getDesiredState());
   }
 
   @Test
-  void purgePreparationRequestsExactStatesAndRequirements() {
+  void purgeRequestsExactFinalStatesAndRequirementsInPurgeZone() {
+    harness.setAlliance(AllianceStationID.Blue1);
+    Pose2d unrotated = harness.poseInside(FieldZones.NEUTRAL_LEFT_PURGE);
+    Translation2d target = FieldConstants.AimPoints.BLUE_LEFT_PURGE_POINT;
+    harness.setPose(
+        new Pose2d(
+            unrotated.getTranslation(), target.minus(unrotated.getTranslation()).getAngle()));
     Command command = harness.superstructure.setStateCmd(Superstate.PURGE);
     assertEquals(
         Set.of(harness.superstructure, harness.intake, harness.hopper, harness.shooter),
