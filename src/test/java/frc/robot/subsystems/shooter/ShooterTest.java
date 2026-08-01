@@ -230,6 +230,24 @@ class ShooterTest {
   }
 
   @Test
+  void satisfiedSetpointRefreshCannotPromoteTransitionBeforePeriodic() {
+    RecordingIO io = new RecordingIO();
+    Shooter shooter = new Shooter(io);
+    shooter.periodic();
+    shooter.setDesiredState(ShooterState.SHOOT);
+    io.measuredFlywheelRpm = 2580.0;
+    io.measuredHoodRotations = 0.05;
+    shooter.periodic();
+    assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
+
+    shooter.setSetpoint(2580.0, 0.05);
+
+    assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
+    shooter.periodic();
+    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
+  }
+
+  @Test
   void hoodReadinessUsesInclusivePointOneTwoFiveRotationTolerance() {
     RecordingIO io = new RecordingIO();
     Shooter shooter = new Shooter(io);
