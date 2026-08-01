@@ -4,12 +4,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import edu.wpi.first.hal.HAL;
 import edu.wpi.first.wpilibj.simulation.DriverStationSim;
+import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.subsystems.Superstructure.ShootMode;
 import frc.robot.subsystems.Superstructure.Superstate;
 import frc.robot.subsystems.hopper.Hopper.HopperState;
 import frc.robot.subsystems.intake.Intake.IntakeState;
 import frc.robot.subsystems.shooter.Shooter.ShooterState;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +75,83 @@ class SuperstructureStateCommandTest {
     assertEquals(IntakeState.OUTTAKE, harness.intake.getDesiredState());
     assertEquals(HopperState.STOP, harness.hopper.getDesiredState());
     assertEquals(ShooterState.PREPFUEL, harness.shooter.getDesiredState());
+  }
+
+  @Test
+  void cleanupAfterFailedConstructionRemovesAllSchedulerRegistrations() {
+    AtomicInteger periodicCalls = new AtomicInteger();
+    new SubsystemBase() {
+      @Override
+      public void periodic() {
+        periodicCalls.incrementAndGet();
+      }
+    };
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new Superstructure(
+                null, harness.intake, harness.hopper, harness.shooter, harness.vision));
+
+    harness.close();
+    harness.runCycles(1);
+
+    assertEquals(0, periodicCalls.get());
+  }
+
+  @Test
+  void shootingPreparationStatesLeaveIntakeHeldAndOwnOnlyCoordinatorHopperAndShooter() {
+    harness.run(harness.superstructure.setStateCmd(Superstate.DRIVE));
+
+    for (Superstate state :
+        new Superstate[] {
+          Superstate.SHOOT_WITH_AIM, Superstate.SHOOT_NO_AIM, Superstate.MANUAL_SHOOT
+        }) {
+      Command command = harness.superstructure.setStateCmd(state);
+      assertEquals(
+          Set.of(harness.superstructure, harness.hopper, harness.shooter),
+          command.getRequirements());
+
+      harness.run(command);
+
+      assertEquals(state, harness.superstructure.getCurrentState());
+      assertEquals(IntakeState.DEPLOYED, harness.intake.getDesiredState());
+      assertEquals(HopperState.STOP, harness.hopper.getDesiredState());
+      assertEquals(ShooterState.SHOOT, harness.shooter.getDesiredState());
+    }
+  }
+
+  @Test
+  void purgePreparationRequestsExactStatesAndRequirements() {
+    Command command = harness.superstructure.setStateCmd(Superstate.PURGE);
+    assertEquals(
+        Set.of(harness.superstructure, harness.intake, harness.hopper, harness.shooter),
+        command.getRequirements());
+
+    harness.run(command);
+
+    assertEquals(Superstate.PURGE, harness.superstructure.getCurrentState());
+    assertEquals(IntakeState.OUTTAKE, harness.intake.getDesiredState());
+    assertEquals(HopperState.STOP, harness.hopper.getDesiredState());
+    assertEquals(ShooterState.SHOOT, harness.shooter.getDesiredState());
+  }
+
+  @Test
+  void mechanismOverridesRemainAuthoritativeWithOnlyTheirOwnRequirement() {
+    Command intakeOverride = harness.superstructure.intakeOverrideCmd(IntakeState.INTAKE);
+    Command hopperOverride = harness.superstructure.hopperOverrideCmd(HopperState.INDEX_TO_SHOOTER);
+    Command shooterOverride = harness.superstructure.shooterOverrideCmd(ShooterState.STOP);
+    assertEquals(Set.of(harness.intake), intakeOverride.getRequirements());
+    assertEquals(Set.of(harness.hopper), hopperOverride.getRequirements());
+    assertEquals(Set.of(harness.shooter), shooterOverride.getRequirements());
+
+    harness.run(intakeOverride);
+    harness.run(hopperOverride);
+    harness.run(shooterOverride);
+    harness.runCycles(2);
+
+    assertEquals(IntakeState.INTAKE, harness.intake.getDesiredState());
+    assertEquals(HopperState.INDEX_TO_SHOOTER, harness.hopper.getDesiredState());
+    assertEquals(ShooterState.STOP, harness.shooter.getDesiredState());
   }
 
   @Test
