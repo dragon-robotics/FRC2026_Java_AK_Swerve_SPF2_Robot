@@ -193,7 +193,8 @@ class SuperstructureShootingTest {
     assertTrue(harness.superstructure.shouldUsePurgeDuringShoot());
     Command selected = harness.superstructure.selectedShootModeCmd();
     assertEquals(
-        Set.of(harness.superstructure, harness.intake, harness.shooter, harness.hopper),
+        Set.of(
+            harness.superstructure, harness.intake, harness.shooter, harness.hopper, harness.drive),
         selected.getRequirements());
     harness.run(selected);
     assertEquals(Superstate.PURGE, harness.superstructure.getCurrentState());
@@ -205,7 +206,8 @@ class SuperstructureShootingTest {
     CommandScheduler.getInstance().cancelAll();
     Command explicitPurge = harness.superstructure.purgeShootCmd();
     assertEquals(
-        Set.of(harness.superstructure, harness.intake, harness.shooter, harness.hopper),
+        Set.of(
+            harness.superstructure, harness.intake, harness.shooter, harness.hopper, harness.drive),
         explicitPurge.getRequirements());
   }
 

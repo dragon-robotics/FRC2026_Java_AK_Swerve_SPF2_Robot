@@ -4,14 +4,28 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import edu.wpi.first.hal.HAL;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.simulation.DriverStationSim;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import frc.robot.subsystems.drive.Drive;
+import frc.robot.subsystems.drive.GyroIO;
+import frc.robot.subsystems.drive.ModuleIO;
 import frc.robot.util.constants.FieldConstants.FieldZones;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class DriveCommandsTest {
+  @BeforeAll
+  static void initializeHal() {
+    HAL.initialize(500, 0);
+  }
+
   @Test
   void processJoystickInputsAppliesDeadbandSquaringAndHalfSpeed() {
     var full = DriveCommands.processJoystickInputs(0.5, -0.5, 0.5, false, 10.0, 4.0);
@@ -116,5 +130,34 @@ class DriveCommandsTest {
             .isEmpty());
     assertTrue(
         DriveCommands.getZoneLockedHeading(FieldZones.OPPONENT_RIGHT_BUMP, Alliance.Red).isEmpty());
+  }
+
+  @Test
+  void joystickDriveAtAnglePublishesTheActiveTargetHeading() {
+    AtomicReference<Optional<Rotation2d>> observed = new AtomicReference<>(Optional.empty());
+    Rotation2d target = Rotation2d.fromDegrees(37.0);
+    Drive drive =
+        new Drive(
+            new GyroIO() {},
+            new ModuleIO() {},
+            new ModuleIO() {},
+            new ModuleIO() {},
+            new ModuleIO() {});
+    try {
+      DriverStationSim.setEnabled(true);
+      DriverStationSim.notifyNewData();
+      Command command =
+          DriveCommands.joystickDriveAtAngle(
+              drive, () -> 0.0, () -> 0.0, () -> target, observed::set);
+      CommandScheduler.getInstance().schedule(command);
+      CommandScheduler.getInstance().run();
+      CommandScheduler.getInstance().run();
+      assertEquals(Optional.of(target), observed.get());
+    } finally {
+      CommandScheduler.getInstance().cancelAll();
+      CommandScheduler.getInstance().unregisterSubsystem(drive);
+      DriverStationSim.resetData();
+      DriverStationSim.notifyNewData();
+    }
   }
 }

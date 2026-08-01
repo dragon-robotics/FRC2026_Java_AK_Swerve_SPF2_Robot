@@ -294,6 +294,15 @@ public class DriveCommands {
       DoubleSupplier translationSup,
       DoubleSupplier strafeSup,
       Supplier<Rotation2d> rotationSupplier) {
+    return joystickDriveAtAngle(drive, translationSup, strafeSup, rotationSupplier, ignored -> {});
+  }
+
+  public static Command joystickDriveAtAngle(
+      Drive drive,
+      DoubleSupplier translationSup,
+      DoubleSupplier strafeSup,
+      Supplier<Rotation2d> rotationSupplier,
+      Consumer<Optional<Rotation2d>> headingObserver) {
 
     // Create PID controller
     ProfiledPIDController angleController =
@@ -313,9 +322,11 @@ public class DriveCommands {
                       translationSup.getAsDouble(), strafeSup.getAsDouble());
 
               // Calculate angular speed
+              Rotation2d targetRotation = rotationSupplier.get();
+              headingObserver.accept(Optional.of(targetRotation));
               double omega =
                   angleController.calculate(
-                      drive.getRotation().getRadians(), rotationSupplier.get().getRadians());
+                      drive.getRotation().getRadians(), targetRotation.getRadians());
 
               // Convert to field relative speeds & send command
               ChassisSpeeds speeds =

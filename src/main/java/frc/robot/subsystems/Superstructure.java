@@ -1,6 +1,7 @@
 package frc.robot.subsystems;
 
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
@@ -8,6 +9,7 @@ import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import frc.robot.commands.DriveCommands;
 import frc.robot.subsystems.drive.Drive;
 import frc.robot.subsystems.hopper.Hopper;
 import frc.robot.subsystems.hopper.Hopper.HopperState;
@@ -63,6 +65,8 @@ public class Superstructure extends SubsystemBase {
   private Translation2d currentAimTarget = FieldConstants.Hub.BLUE_CENTER_POSE;
   private double distanceToTargetMeters;
   private boolean alignedToTarget;
+  private Optional<Rotation2d> currentHeading = Optional.empty();
+  private double rotationLastTriggered;
 
   public Superstructure(Drive drive, Intake intake, Hopper hopper, Shooter shooter, Vision vision) {
     this(drive, intake, hopper, shooter, vision, Timer::new);
@@ -108,6 +112,27 @@ public class Superstructure extends SubsystemBase {
   public boolean isSelectedShootAllowed() {
     return shootMode != ShootMode.DEFAULT_SHOOT_WITH_AIM
         || SuperstructureTargeting.isShootAllowed(allianceConfirmed, currentZone);
+  }
+
+  public Optional<Rotation2d> getCurrentHeading() {
+    return currentHeading;
+  }
+
+  public void setCurrentHeading(Optional<Rotation2d> heading) {
+    currentHeading = Objects.requireNonNull(heading);
+  }
+
+  public double getRotationLastTriggered() {
+    return rotationLastTriggered;
+  }
+
+  public void setRotationLastTriggered(double timestampSeconds) {
+    rotationLastTriggered = timestampSeconds;
+  }
+
+  public Optional<Rotation2d> getZoneLockedHeading() {
+    if (!allianceConfirmed || currentZone == null) return Optional.empty();
+    return DriveCommands.getZoneLockedHeading(currentZone, alliance);
   }
 
   Translation2d getCurrentAimTarget() {
@@ -160,6 +185,53 @@ public class Superstructure extends SubsystemBase {
 
   public Command purgeShootCmd() {
     return purgeCmd().withName("Superstate(SHOOT->PURGE)");
+  }
+
+  public Command forceReseedFromVisionCmd() {
+    return Commands.runOnce(vision::forceReseedFromVision, vision).withName("Force Vision Reseed");
+  }
+
+  public Command shootNoAimWithJuicerDelayCmd() {
+    Timer timer = Objects.requireNonNull(timerFactory.get());
+    return Commands.runOnce(timer::restart)
+        .andThen(
+            Commands.run(
+                () -> {
+                  currentState = Superstate.SHOOT_NO_AIM;
+                  intake.setDesiredState(
+                      timer.hasElapsed(1.5) ? IntakeState.JUICER : IntakeState.DEPLOYED);
+                  shooter.setDesiredState(ShooterState.SHOOT);
+                  setHopperFeedWhenReady(true);
+                },
+                this,
+                intake,
+                shooter,
+                hopper))
+        .withName("Superstate(SHOOT_NO_AIM+JUICER)");
+  }
+
+  public Command shootWithJuicerDelayCmd() {
+    Timer timer = Objects.requireNonNull(timerFactory.get());
+    return Commands.runOnce(timer::restart)
+        .andThen(
+            Commands.run(
+                    () -> {
+                      boolean purge =
+                          SuperstructureTargeting.isPurgeZone(allianceConfirmed, currentZone);
+                      currentState = purge ? Superstate.PURGE : Superstate.SHOOT_WITH_AIM;
+                      intake.setDesiredState(
+                          purge
+                              ? IntakeState.OUTTAKE
+                              : timer.hasElapsed(1.5) ? IntakeState.JUICER : IntakeState.DEPLOYED);
+                      shooter.setDesiredState(ShooterState.SHOOT);
+                      setHopperFeedWhenReady(true);
+                    },
+                    this,
+                    intake,
+                    shooter,
+                    hopper)
+                .alongWith(stationaryAimCommand()))
+        .withName("Superstate(SHOOT_WITH_AIM+JUICER)");
   }
 
   public Command setShootModeCmd(ShootMode mode) {
@@ -231,14 +303,24 @@ public class Superstructure extends SubsystemBase {
         hopper);
   }
 
+  private Command stationaryAimCommand() {
+    return DriveCommands.joystickDriveAtAngle(
+        drive,
+        () -> 0.0,
+        () -> 0.0,
+        () -> SuperstructureTargeting.geometricTargetHeading(drive.getPose(), currentAimTarget),
+        this::setCurrentHeading);
+  }
+
   private Command shootWithAimCmd() {
     if (!isShootAllowed()) {
       return Commands.idle().withName("Superstate(SHOOT_WITH_AIM:DISALLOWED)");
     }
     if (SuperstructureTargeting.isPurgeZone(allianceConfirmed, currentZone)) {
-      return createPurgeMechanismCommand().withName("Superstate(SHOOT_WITH_AIM->PURGE)");
+      return purgeCmd();
     }
     return createShootMechanismCommand(Superstate.SHOOT_WITH_AIM, true)
+        .alongWith(stationaryAimCommand())
         .withName("Superstate(SHOOT_WITH_AIM)");
   }
 
@@ -287,7 +369,9 @@ public class Superstructure extends SubsystemBase {
     if (!SuperstructureTargeting.isPurgeZone(allianceConfirmed, currentZone)) {
       return Commands.idle().withName("Superstate(PURGE:DISALLOWED)");
     }
-    return createPurgeMechanismCommand().withName("Superstate(PURGE)");
+    return createPurgeMechanismCommand()
+        .alongWith(stationaryAimCommand())
+        .withName("Superstate(PURGE)");
   }
 
   private void updateTargeting(Pose2d pose) {
