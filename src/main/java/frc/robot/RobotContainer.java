@@ -8,11 +8,11 @@
 package frc.robot;
 
 import com.pathplanner.lib.auto.AutoBuilder;
+import com.pathplanner.lib.auto.NamedCommands;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
-import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.GenericHID;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj2.command.Command;
@@ -20,6 +20,8 @@ import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.commands.DriveCommands;
+import frc.robot.subsystems.Superstructure;
+import frc.robot.subsystems.Superstructure.Superstate;
 import frc.robot.subsystems.drive.Drive;
 import frc.robot.subsystems.drive.GyroIO;
 import frc.robot.subsystems.drive.GyroIOPigeon2;
@@ -47,7 +49,6 @@ import frc.robot.subsystems.vision.VisionIOPhotonVision.HeadingProvider;
 import frc.robot.subsystems.vision.VisionIOPhotonVisionSim;
 import frc.robot.subsystems.vision.VisionRuntimeConfig;
 import frc.robot.subsystems.vision.VisionSimulation;
-import frc.robot.util.constants.FieldConstants.FieldZones;
 import frc.robot.util.constants.OperatorConstants;
 import java.util.ArrayList;
 import java.util.List;
@@ -99,12 +100,9 @@ public class RobotContainer {
   private final Intake intake;
   private final Hopper hopper;
   private final Shooter shooter;
+  private final Superstructure superstructure;
   private final Vision vision;
   private final VisionSimulation visionSimulation;
-
-  // Default-drive state
-  private Optional<Rotation2d> currentDriveHeading = Optional.empty();
-  private double rotationLastTriggered = 0.0;
 
   // Controller
 
@@ -135,9 +133,13 @@ public class RobotContainer {
     intake = new Intake(createIntakeIO(Constants.currentMode));
     hopper = new Hopper(createHopperIO(Constants.currentMode));
     shooter = new Shooter(createShooterIO(Constants.currentMode));
+    superstructure = new Superstructure(drive, intake, hopper, shooter, vision);
 
     // Set up auto routines
-    autoChooser = new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser());
+    autoChooser =
+        registerThenBuildChooser(
+            () -> registerNamedCommands(superstructure),
+            () -> new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser()));
 
     // Set up SysId routines
     autoChooser.addOption(
@@ -176,11 +178,11 @@ public class RobotContainer {
             () -> -driverController.getRightX(),
             () -> driverController.getHID().getPOV() == 0,
             () -> driverController.getHID().getXButton(),
-            () -> currentDriveHeading,
-            heading -> currentDriveHeading = heading,
-            () -> rotationLastTriggered,
-            timestamp -> rotationLastTriggered = timestamp,
-            this::getZoneLockedHeading));
+            superstructure::getCurrentHeading,
+            superstructure::setCurrentHeading,
+            superstructure::getRotationLastTriggered,
+            superstructure::setRotationLastTriggered,
+            superstructure::getZoneLockedHeading));
 
     // Reset gyro to 0° when start and back buttons are pressed
     driverController
@@ -203,14 +205,6 @@ public class RobotContainer {
                 .withName("Force Vision Reseed"));
   }
 
-  private Optional<Rotation2d> getZoneLockedHeading() {
-    return DriverStation.getAlliance()
-        .flatMap(
-            alliance ->
-                DriveCommands.getZoneLockedHeading(
-                    FieldZones.fromPose(drive.getPose(), alliance), alliance));
-  }
-
   /**
    * Use this to pass the autonomous command to the main {@link Robot} class.
    *
@@ -228,6 +222,18 @@ public class RobotContainer {
     C config = Objects.requireNonNull(configConstructor.apply(constructedDrive));
     V constructedVision = Objects.requireNonNull(visionConstructor.apply(constructedDrive, config));
     return new DriveVisionConstruction<>(constructedDrive, constructedVision);
+  }
+
+  static void registerNamedCommands(Superstructure superstructure) {
+    NamedCommands.registerCommand("Intake", superstructure.setStateCmd(Superstate.INTAKE));
+    NamedCommands.registerCommand("Shoot", superstructure.shootWithJuicerDelayCmd());
+    NamedCommands.registerCommand("ShootNoAim", superstructure.shootNoAimWithJuicerDelayCmd());
+    NamedCommands.registerCommand("Drive", superstructure.setStateCmd(Superstate.DRIVE));
+  }
+
+  static <T> T registerThenBuildChooser(Runnable register, Supplier<T> chooserFactory) {
+    Objects.requireNonNull(register).run();
+    return Objects.requireNonNull(chooserFactory).get();
   }
 
   private static Drive createDrive(Constants.Mode mode) {
