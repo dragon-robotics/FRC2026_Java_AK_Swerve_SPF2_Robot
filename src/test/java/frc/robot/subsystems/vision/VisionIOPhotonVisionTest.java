@@ -32,7 +32,11 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.photonvision.EstimatedRobotPose;
 import org.photonvision.PhotonPoseEstimator;
 import org.photonvision.targeting.PhotonPipelineResult;
@@ -42,6 +46,7 @@ import org.photonvision.targeting.TargetCorner;
 class VisionIOPhotonVisionTest {
   private static final CameraConfig CAMERA =
       new CameraConfig("test-camera", new Transform3d(), 1.0);
+  private static final double NOW_SECONDS = 100.0;
 
   @Test
   void drainsEveryUnreadFrameInCaptureOrderAndStopsAfterEachFirstSuccess() {
@@ -66,7 +71,7 @@ class VisionIOPhotonVisionTest {
         estimate(third, new Pose3d(3.0, 0.0, 0.0, Rotation3d.kZero), three));
     VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
 
-    io.updateInputs(inputs);
+    io.updateInputs(inputs, 2.5);
 
     PoseObservation[] observations = inputs.getPoseObservations();
     assertAll(
@@ -98,8 +103,6 @@ class VisionIOPhotonVisionTest {
                     PoseSolveStrategy.CONSTRAINED_SOLVEPNP,
                     PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE,
                     PoseSolveStrategy.MULTI_TAG_PNP_ON_COPROCESSOR,
-                    PoseSolveStrategy.CONSTRAINED_SOLVEPNP,
-                    PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE,
                     PoseSolveStrategy.LOWEST_AMBIGUITY),
                 io.attempts()));
   }
@@ -114,8 +117,8 @@ class VisionIOPhotonVisionTest {
         populated, PoseSolveStrategy.LOWEST_AMBIGUITY, estimate(populated, Pose3d.kZero, target));
     VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
 
-    io.updateInputs(inputs);
-    io.updateInputs(inputs);
+    io.updateInputs(inputs, 4.0);
+    io.updateInputs(inputs, 4.0);
 
     assertAll(
         () -> assertEquals(Rotation2d.kZero, inputs.latestTargetObservation.tx()),
@@ -132,7 +135,7 @@ class VisionIOPhotonVisionTest {
     disconnectedIo.script(
         buffered, PoseSolveStrategy.LOWEST_AMBIGUITY, estimate(buffered, Pose3d.kZero, target));
 
-    disconnectedIo.updateInputs(inputs);
+    disconnectedIo.updateInputs(inputs, 5.0);
 
     assertAll(
         () -> assertFalse(inputs.connected),
@@ -152,7 +155,7 @@ class VisionIOPhotonVisionTest {
         populated, PoseSolveStrategy.LOWEST_AMBIGUITY, estimate(populated, Pose3d.kZero, target));
     VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
 
-    io.updateInputs(inputs);
+    io.updateInputs(inputs, 5.5);
 
     assertAll(
         () -> assertEquals(Rotation2d.kZero, inputs.latestTargetObservation.tx()),
@@ -174,7 +177,7 @@ class VisionIOPhotonVisionTest {
         populated, PoseSolveStrategy.LOWEST_AMBIGUITY, estimate(populated, Pose3d.kZero, target));
     VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
 
-    io.updateInputs(inputs);
+    io.updateInputs(inputs, 5.75);
 
     assertAll(
         () -> assertEquals(Rotation2d.kZero, inputs.latestTargetObservation.tx()),
@@ -214,7 +217,7 @@ class VisionIOPhotonVisionTest {
     missingIo.script(
         missing, PoseSolveStrategy.LOWEST_AMBIGUITY, estimate(missing, Pose3d.kZero, noTransform));
     VisionIO.VisionIOInputs missingInputs = new VisionIO.VisionIOInputs();
-    missingIo.updateInputs(missingInputs);
+    missingIo.updateInputs(missingInputs, 7.0);
     PoseObservation observation = missingInputs.getPoseObservations()[0];
     assertAll(
         () -> assertEquals(Double.POSITIVE_INFINITY, observation.confidenceDistanceMeters()),
@@ -239,7 +242,7 @@ class VisionIOPhotonVisionTest {
         estimate(skipped, Pose3d.kZero, noTransform, beyond));
     VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
 
-    io.updateInputs(inputs);
+    io.updateInputs(inputs, 8.0);
 
     assertAll(
         () -> assertEquals(1, inputs.getPoseObservations().length),
@@ -262,7 +265,7 @@ class VisionIOPhotonVisionTest {
     ScriptedVisionIO io = scriptedIo(source, config(TagDistanceConfidenceMode.ALL_TAG_AVERAGE));
     VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
 
-    io.updateInputs(inputs);
+    io.updateInputs(inputs, 9.5);
 
     assertAll(
         () -> assertEquals(6.0, inputs.latestTargetObservation.tx().getDegrees(), 1e-12),
@@ -419,6 +422,169 @@ class VisionIOPhotonVisionTest {
             .isEmpty());
   }
 
+  @ParameterizedTest(name = "{0}: {1}")
+  @MethodSource("invalidHistoryTimestampCases")
+  void invalidRawTimestampsSkipHistoryStrategiesButPreserveNonHistoryFallback(
+      String name, PoseSolveStrategy historyStrategy, double timestampSeconds) {
+    PhotonTrackedTarget target = target(18, 1.0, 0.1, 0.0, 0.0);
+    PhotonPipelineResult result = timestampedResult(timestampSeconds, target);
+    FakeCameraSource source = new FakeCameraSource(List.of(List.of(result)));
+    source.cameraMatrix = Optional.of(cameraMatrix());
+    source.distortion = Optional.of(distortion());
+    RecordingEstimator estimator = new RecordingEstimator();
+    EstimatedRobotPose estimate = estimate(result, Pose3d.kZero, target);
+    estimator.lowestResult = Optional.of(estimate);
+    estimator.trigResult = Optional.of(estimate);
+    estimator.constrainedResult = Optional.of(estimate);
+    ProbeHeadingProvider heading = new ProbeHeadingProvider(0.0, 0.0);
+    VisionIOPhotonVision io =
+        new VisionIOPhotonVision(
+            CAMERA,
+            config(historyStrategy, PoseSolveStrategy.LOWEST_AMBIGUITY),
+            source,
+            estimator,
+            heading);
+    io.markVisionInitializationComplete();
+    VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
+
+    io.updateInputs(inputs, NOW_SECONDS);
+
+    PoseObservation[] observations = inputs.getPoseObservations();
+    assertAll(
+        () -> assertTrue(heading.headingTimestamps.isEmpty()),
+        () -> assertTrue(heading.seedTimestamps.isEmpty()),
+        () -> assertTrue(estimator.headingDataTimestamps.isEmpty()),
+        () -> assertEquals(List.of("lowest"), estimator.events),
+        () -> assertEquals(1, observations.length),
+        () -> assertEquals(PoseSolveStrategy.LOWEST_AMBIGUITY, observations[0].strategy()),
+        () ->
+            assertEquals(
+                Double.doubleToRawLongBits(timestampSeconds),
+                Double.doubleToRawLongBits(observations[0].timestampSeconds())));
+  }
+
+  @ParameterizedTest(name = "{0}: {1}")
+  @MethodSource("historyTimestampBoundaryCases")
+  void inclusiveRawTimestampBoundariesAllowHistoryStrategies(
+      String name, PoseSolveStrategy historyStrategy, double timestampSeconds) {
+    PhotonTrackedTarget target = target(19, 1.0, 0.1, 0.0, 0.0);
+    PhotonPipelineResult result = timestampedResult(timestampSeconds, target);
+    FakeCameraSource source = new FakeCameraSource(List.of(List.of(result)));
+    source.cameraMatrix = Optional.of(cameraMatrix());
+    source.distortion = Optional.of(distortion());
+    RecordingEstimator estimator = new RecordingEstimator();
+    EstimatedRobotPose estimate = estimate(result, Pose3d.kZero, target);
+    estimator.trigResult = Optional.of(estimate);
+    estimator.constrainedResult = Optional.of(estimate);
+    ProbeHeadingProvider heading = new ProbeHeadingProvider(0.0, 0.0);
+    VisionIOPhotonVision io =
+        new VisionIOPhotonVision(CAMERA, config(historyStrategy), source, estimator, heading);
+    io.markVisionInitializationComplete();
+    VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
+
+    io.updateInputs(inputs, NOW_SECONDS);
+
+    PoseObservation[] observations = inputs.getPoseObservations();
+    assertAll(
+        () -> assertEquals(List.of(timestampSeconds), heading.headingTimestamps),
+        () -> assertEquals(List.of(timestampSeconds), estimator.headingDataTimestamps),
+        () ->
+            assertEquals(
+                historyStrategy == PoseSolveStrategy.CONSTRAINED_SOLVEPNP
+                    ? List.of(timestampSeconds)
+                    : List.of(),
+                heading.seedTimestamps),
+        () -> assertEquals(1, observations.length),
+        () -> assertEquals(historyStrategy, observations[0].strategy()));
+  }
+
+  @Test
+  void invalidRawFrameClearsPriorObservationWithoutTouchingHistoryState() {
+    PhotonTrackedTarget target = target(20, 1.0, 0.1, 0.0, 0.0);
+    PhotonPipelineResult valid = timestampedResult(99.9, target);
+    PhotonPipelineResult invalid = timestampedResult(Double.NaN, target);
+    FakeCameraSource source = new FakeCameraSource(List.of(List.of(valid), List.of(invalid)));
+    RecordingEstimator estimator = new RecordingEstimator();
+    estimator.trigResult = Optional.of(estimate(valid, Pose3d.kZero, target));
+    ProbeHeadingProvider heading = new ProbeHeadingProvider(0.0, 0.0);
+    VisionIOPhotonVision io =
+        new VisionIOPhotonVision(
+            CAMERA, config(PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE), source, estimator, heading);
+    io.markVisionInitializationComplete();
+    VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
+
+    io.updateInputs(inputs, NOW_SECONDS);
+    assertEquals(1, inputs.getPoseObservations().length);
+    heading.headingTimestamps.clear();
+    estimator.headingDataTimestamps.clear();
+    estimator.headingData.clear();
+    estimator.events.clear();
+    estimator.trigResult = Optional.of(estimate(invalid, Pose3d.kZero, target));
+
+    io.updateInputs(inputs, NOW_SECONDS);
+
+    assertAll(
+        () -> assertEquals(0, inputs.getPoseObservations().length),
+        () -> assertArrayEquals(new int[0], inputs.getTagIds()),
+        () -> assertTrue(heading.headingTimestamps.isEmpty()),
+        () -> assertTrue(heading.seedTimestamps.isEmpty()),
+        () -> assertTrue(estimator.headingDataTimestamps.isEmpty()),
+        () -> assertTrue(estimator.events.isEmpty()));
+  }
+
+  private static Stream<Arguments> invalidHistoryTimestampCases() {
+    return Stream.of(
+            Double.NaN,
+            Double.POSITIVE_INFINITY,
+            Double.NEGATIVE_INFINITY,
+            NOW_SECONDS + VisionConstants.MAX_FUTURE_TIMESTAMP_SECONDS + 1e-9,
+            NOW_SECONDS - VisionConstants.MAX_OBSERVATION_AGE_SECONDS - 1e-9)
+        .flatMap(
+            timestampSeconds ->
+                Stream.of(
+                    Arguments.of(
+                        timestampCaseName(timestampSeconds),
+                        PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE,
+                        timestampSeconds),
+                    Arguments.of(
+                        timestampCaseName(timestampSeconds),
+                        PoseSolveStrategy.CONSTRAINED_SOLVEPNP,
+                        timestampSeconds)));
+  }
+
+  private static Stream<Arguments> historyTimestampBoundaryCases() {
+    return Stream.of(
+        Arguments.of(
+            "future boundary",
+            PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE,
+            NOW_SECONDS + VisionConstants.MAX_FUTURE_TIMESTAMP_SECONDS),
+        Arguments.of(
+            "future boundary",
+            PoseSolveStrategy.CONSTRAINED_SOLVEPNP,
+            NOW_SECONDS + VisionConstants.MAX_FUTURE_TIMESTAMP_SECONDS),
+        Arguments.of(
+            "age boundary",
+            PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE,
+            NOW_SECONDS - VisionConstants.MAX_OBSERVATION_AGE_SECONDS),
+        Arguments.of(
+            "age boundary",
+            PoseSolveStrategy.CONSTRAINED_SOLVEPNP,
+            NOW_SECONDS - VisionConstants.MAX_OBSERVATION_AGE_SECONDS));
+  }
+
+  private static String timestampCaseName(double timestampSeconds) {
+    if (Double.isNaN(timestampSeconds)) {
+      return "NaN";
+    }
+    if (timestampSeconds == Double.POSITIVE_INFINITY) {
+      return "positive infinity";
+    }
+    if (timestampSeconds == Double.NEGATIVE_INFINITY) {
+      return "negative infinity";
+    }
+    return timestampSeconds > NOW_SECONDS ? "future" : "stale";
+  }
+
   private static PoseObservation observe(
       PhotonPipelineResult result, TagDistanceConfidenceMode distanceMode) {
     FakeCameraSource source = new FakeCameraSource(List.of(List.of(result)));
@@ -428,7 +594,7 @@ class VisionIOPhotonVisionTest {
         PoseSolveStrategy.LOWEST_AMBIGUITY,
         estimate(result, Pose3d.kZero, result.getTargets().toArray(PhotonTrackedTarget[]::new)));
     VisionIO.VisionIOInputs inputs = new VisionIO.VisionIOInputs();
-    io.updateInputs(inputs);
+    io.updateInputs(inputs, result.getTimestampSeconds());
     return inputs.getPoseObservations()[0];
   }
 
@@ -455,6 +621,17 @@ class VisionIOPhotonVisionTest {
         StartupStrategyOrder.CONSTRAINED_SECOND);
   }
 
+  private static VisionRuntimeConfig config(PoseSolveStrategy... strategyOrder) {
+    return new VisionRuntimeConfig(
+        8.0,
+        true,
+        "STATIC",
+        List.of(strategyOrder),
+        true,
+        TagDistanceConfidenceMode.ALL_TAG_AVERAGE,
+        StartupStrategyOrder.CONSTRAINED_SECOND);
+  }
+
   private static EstimatedRobotPose estimate(
       PhotonPipelineResult result, Pose3d pose, PhotonTrackedTarget... targets) {
     return new EstimatedRobotPose(pose, result.getTimestampSeconds(), List.of(targets));
@@ -465,6 +642,11 @@ class VisionIOPhotonVisionTest {
     long captureMicros = Math.round(timestampSeconds * 1_000_000.0);
     return new PhotonPipelineResult(
         captureMicros, captureMicros, captureMicros + 10_000, 0, List.of(targets));
+  }
+
+  private static PhotonPipelineResult timestampedResult(
+      double timestampSeconds, PhotonTrackedTarget... targets) {
+    return new TimestampedResult(timestampSeconds, targets);
   }
 
   private static PhotonTrackedTarget target(
@@ -533,6 +715,20 @@ class VisionIOPhotonVisionTest {
         PoseSolveStrategy strategy, PhotonPipelineResult result) {
       attempts.add(strategy);
       return Optional.ofNullable(scripts.getOrDefault(result, Map.of()).get(strategy));
+    }
+  }
+
+  private static final class TimestampedResult extends PhotonPipelineResult {
+    private final double timestampSeconds;
+
+    TimestampedResult(double timestampSeconds, PhotonTrackedTarget... targets) {
+      super(0, 0, 10_000, 0, List.of(targets));
+      this.timestampSeconds = timestampSeconds;
+    }
+
+    @Override
+    public double getTimestampSeconds() {
+      return timestampSeconds;
     }
   }
 

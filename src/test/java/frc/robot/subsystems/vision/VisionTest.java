@@ -67,6 +67,8 @@ class VisionTest {
         () -> assertEquals(1, clockCalls.get()),
         () -> assertEquals(1, front.nameCalls),
         () -> assertEquals(1, rear.nameCalls),
+        () -> assertEquals(List.of(10.0), front.updateNows),
+        () -> assertEquals(List.of(10.0), rear.updateNows),
         () ->
             assertEquals(
                 List.of("hook", "update-front", "update-rear", "history", "history"), events),
@@ -331,6 +333,7 @@ class VisionTest {
     private int updateIndex;
     private int nameCalls;
     private int[] aggregateTagIds = {1, 2};
+    private final List<Double> updateNows = new ArrayList<>();
 
     ScriptedIO(String name, boolean connected, PoseObservation... observations) {
       this(name, new ArrayList<>(), connected, observations);
@@ -369,6 +372,12 @@ class VisionTest {
       inputs.setPoseObservations(observations);
       inputs.setTagIds(observations.length == 0 ? new int[0] : aggregateTagIds);
       updateIndex++;
+    }
+
+    @Override
+    public void updateInputs(VisionIOInputs inputs, double nowSeconds) {
+      updateNows.add(nowSeconds);
+      updateInputs(inputs);
     }
   }
 

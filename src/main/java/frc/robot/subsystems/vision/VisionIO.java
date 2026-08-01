@@ -155,5 +155,10 @@ public interface VisionIO {
 
   default void updateInputs(VisionIOInputs inputs) {}
 
+  /** Updates inputs using the single FPGA timestamp captured by the owning subsystem loop. */
+  default void updateInputs(VisionIOInputs inputs, double nowSeconds) {
+    updateInputs(inputs);
+  }
+
   default void markVisionInitializationComplete() {}
 }

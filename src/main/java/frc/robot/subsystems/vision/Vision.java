@@ -203,7 +203,7 @@ public class Vision extends SubsystemBase {
     double rollDegrees = drive.rollDegrees().getAsDouble();
 
     for (int cameraIndex = 0; cameraIndex < io.length; cameraIndex++) {
-      updateCameraInputs(cameraIndex, pitchDegrees, rollDegrees);
+      updateCameraInputs(cameraIndex, now, pitchDegrees, rollDegrees);
     }
     for (int cameraIndex = 0; cameraIndex < io.length; cameraIndex++) {
       processCameraObservations(cameraIndex, now, isDisabled, pitchDegrees, rollDegrees);
@@ -233,8 +233,9 @@ public class Vision extends SubsystemBase {
     }
   }
 
-  private void updateCameraInputs(int cameraIndex, double pitchDegrees, double rollDegrees) {
-    io[cameraIndex].updateInputs(inputs[cameraIndex]);
+  private void updateCameraInputs(
+      int cameraIndex, double now, double pitchDegrees, double rollDegrees) {
+    io[cameraIndex].updateInputs(inputs[cameraIndex], now);
     Logger.processInputs("Vision/" + cameraNames[cameraIndex], inputs[cameraIndex]);
     disconnectedAlerts[cameraIndex].set(!inputs[cameraIndex].connected);
 
