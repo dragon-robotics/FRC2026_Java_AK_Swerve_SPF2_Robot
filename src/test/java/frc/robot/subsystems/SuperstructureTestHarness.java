@@ -90,7 +90,7 @@ public final class SuperstructureTestHarness implements AutoCloseable {
   public void close() {
     CommandScheduler scheduler = CommandScheduler.getInstance();
     scheduler.cancelAll();
-    scheduler.unregisterSubsystem(superstructure, drive, intake, hopper, shooter, vision);
+    scheduler.unregisterAllSubsystems();
   }
 
   public static final class RecordingDrive extends Drive {
