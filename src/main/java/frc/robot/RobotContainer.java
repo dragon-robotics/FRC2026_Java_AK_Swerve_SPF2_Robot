@@ -9,7 +9,9 @@ package frc.robot;
 
 import com.pathplanner.lib.auto.AutoBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.GenericHID;
 import edu.wpi.first.wpilibj.XboxController;
@@ -37,9 +39,23 @@ import frc.robot.subsystems.shooter.Shooter;
 import frc.robot.subsystems.shooter.ShooterIO;
 import frc.robot.subsystems.shooter.ShooterIOSim;
 import frc.robot.subsystems.shooter.ShooterIOTalonFX;
+import frc.robot.subsystems.vision.Vision;
+import frc.robot.subsystems.vision.VisionDriveBindings;
+import frc.robot.subsystems.vision.VisionIO;
+import frc.robot.subsystems.vision.VisionIOPhotonVision;
+import frc.robot.subsystems.vision.VisionIOPhotonVision.HeadingProvider;
+import frc.robot.subsystems.vision.VisionIOPhotonVisionSim;
+import frc.robot.subsystems.vision.VisionRuntimeConfig;
+import frc.robot.subsystems.vision.VisionSimulation;
 import frc.robot.util.constants.FieldConstants.FieldZones;
 import frc.robot.util.constants.OperatorConstants;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.DoubleFunction;
 import java.util.function.Supplier;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
@@ -50,6 +66,20 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
  * subsystems, commands, and button mappings) should be declared here.
  */
 public class RobotContainer {
+  record DriveVisionConstruction<D, V>(D drive, V vision) {}
+
+  private record VisionStack(Vision vision, VisionSimulation simulation) {}
+
+  record VisionIOFactory(
+      String cameraName,
+      VisionSimulation simulationOwner,
+      Class<? extends VisionIO> implementationType,
+      Supplier<? extends VisionIO> constructor) {
+    VisionIO create() {
+      return constructor.get();
+    }
+  }
+
   record ShooterIOFactory<T extends ShooterIO>(
       Class<T> implementationType, Supplier<T> constructor) {
     T create() {
@@ -68,6 +98,8 @@ public class RobotContainer {
   private final Intake intake;
   private final Hopper hopper;
   private final Shooter shooter;
+  private final Vision vision;
+  private final VisionSimulation visionSimulation;
 
   // Default-drive state
   private Optional<Rotation2d> currentDriveHeading = Optional.empty();
@@ -85,42 +117,15 @@ public class RobotContainer {
 
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
-    switch (Constants.currentMode) {
-      case REAL:
-        // Real robot, instantiate hardware IO implementations
-        // ModuleIOTalonFX is intended for modules with TalonFX drive, TalonFX turn, and
-        // a CANcoder
-        drive =
-            new Drive(
-                new GyroIOPigeon2(),
-                new ModuleIOTalonFX(TunerConstants.FrontLeft),
-                new ModuleIOTalonFX(TunerConstants.FrontRight),
-                new ModuleIOTalonFX(TunerConstants.BackLeft),
-                new ModuleIOTalonFX(TunerConstants.BackRight));
-        break;
-
-      case SIM:
-        // Sim robot, instantiate physics sim IO implementations
-        drive =
-            new Drive(
-                new GyroIO() {},
-                new ModuleIOSim(TunerConstants.FrontLeft),
-                new ModuleIOSim(TunerConstants.FrontRight),
-                new ModuleIOSim(TunerConstants.BackLeft),
-                new ModuleIOSim(TunerConstants.BackRight));
-        break;
-
-      default:
-        // Replayed robot, disable IO implementations
-        drive =
-            new Drive(
-                new GyroIO() {},
-                new ModuleIO() {},
-                new ModuleIO() {},
-                new ModuleIO() {},
-                new ModuleIO() {});
-        break;
-    }
+    Constants.Mode mode = Constants.currentMode;
+    DriveVisionConstruction<Drive, VisionStack> driveVision =
+        constructDriveThenVision(
+            () -> createDrive(mode),
+            VisionRuntimeConfig::fromSystemProperties,
+            (constructedDrive, config) -> createVisionStack(mode, constructedDrive, config));
+    drive = driveVision.drive();
+    vision = driveVision.vision().vision();
+    visionSimulation = driveVision.vision().simulation();
 
     intake = new Intake(createIntakeIO(Constants.currentMode));
     hopper = new Hopper(createHopperIO(Constants.currentMode));
@@ -182,7 +187,15 @@ public class RobotContainer {
                         drive.setPose(
                             new Pose2d(drive.getPose().getTranslation(), Rotation2d.kZero)),
                     drive)
-                .ignoringDisable(true));
+                .ignoringDisable(true)
+                .withName("Driver Heading Reset"));
+
+    operatorController
+        .start()
+        .and(operatorController.back())
+        .onTrue(
+            Commands.runOnce(vision::forceReseedFromVision, vision)
+                .withName("Force Vision Reseed"));
   }
 
   private Optional<Rotation2d> getZoneLockedHeading() {
@@ -200,6 +213,155 @@ public class RobotContainer {
    */
   public Command getAutonomousCommand() {
     return autoChooser.get();
+  }
+
+  static <D, C, V> DriveVisionConstruction<D, V> constructDriveThenVision(
+      Supplier<D> driveConstructor,
+      Supplier<C> configConstructor,
+      BiFunction<D, C, V> visionConstructor) {
+    D constructedDrive = Objects.requireNonNull(driveConstructor.get());
+    C config = Objects.requireNonNull(configConstructor.get());
+    V constructedVision = Objects.requireNonNull(visionConstructor.apply(constructedDrive, config));
+    return new DriveVisionConstruction<>(constructedDrive, constructedVision);
+  }
+
+  private static Drive createDrive(Constants.Mode mode) {
+    return switch (mode) {
+      case REAL ->
+      // ModuleIOTalonFX uses TalonFX drive/turn motors and a CANcoder.
+      new Drive(
+          new GyroIOPigeon2(),
+          new ModuleIOTalonFX(TunerConstants.FrontLeft),
+          new ModuleIOTalonFX(TunerConstants.FrontRight),
+          new ModuleIOTalonFX(TunerConstants.BackLeft),
+          new ModuleIOTalonFX(TunerConstants.BackRight));
+      case SIM -> new Drive(
+          new GyroIO() {},
+          new ModuleIOSim(TunerConstants.FrontLeft),
+          new ModuleIOSim(TunerConstants.FrontRight),
+          new ModuleIOSim(TunerConstants.BackLeft),
+          new ModuleIOSim(TunerConstants.BackRight));
+      case REPLAY -> new Drive(
+          new GyroIO() {},
+          new ModuleIO() {},
+          new ModuleIO() {},
+          new ModuleIO() {},
+          new ModuleIO() {});
+    };
+  }
+
+  private static VisionStack createVisionStack(
+      Constants.Mode mode, Drive drive, VisionRuntimeConfig config) {
+    VisionConstructionPlan plan = VisionConstructionPlan.forMode(mode);
+    VisionDriveBindings driveBindings = VisionDriveBindings.fromDrive(drive);
+    HeadingProvider headingProvider =
+        visionHeadingProvider(drive::samplePoseAt, drive::getChassisSpeeds);
+    VisionSimulation simulation =
+        mode == Constants.Mode.SIM ? new VisionSimulation(drive::getSimulationPose) : null;
+    List<VisionIOFactory> factories = visionIOFactories(plan, config, headingProvider, simulation);
+    VisionIO[] io = factories.stream().map(VisionIOFactory::create).toArray(VisionIO[]::new);
+    Runnable simulationUpdate = simulation == null ? null : simulation::update;
+    Vision vision =
+        new Vision(driveBindings, config, visionPreInputHook(mode, simulationUpdate), io);
+    initializeVisionAiming(vision::setAiming);
+    return new VisionStack(vision, simulation);
+  }
+
+  static List<VisionIOFactory> visionIOFactories(
+      VisionConstructionPlan plan,
+      VisionRuntimeConfig config,
+      HeadingProvider headingProvider,
+      VisionSimulation simulation) {
+    if (plan.ioKind() == VisionConstructionPlan.IoKind.SIM_PHOTON) {
+      Objects.requireNonNull(simulation, "SIM vision requires one shared simulation owner");
+    }
+
+    var factories = new ArrayList<VisionIOFactory>(plan.cameras().size());
+    for (var camera : plan.cameras()) {
+      VisionIOFactory factory =
+          switch (plan.ioKind()) {
+            case REAL_PHOTON -> visionIOFactory(
+                camera.name(),
+                VisionIOPhotonVision.class,
+                null,
+                () -> new VisionIOPhotonVision(camera, config, headingProvider));
+            case SIM_PHOTON -> visionIOFactory(
+                camera.name(),
+                VisionIOPhotonVisionSim.class,
+                simulation,
+                () -> new VisionIOPhotonVisionSim(camera, config, headingProvider, simulation));
+            case REPLAY_NOOP -> visionIOFactory(
+                camera.name(), VisionIO.NoOp.class, null, () -> new VisionIO.NoOp(camera.name()));
+          };
+      factories.add(factory);
+    }
+    return List.copyOf(factories);
+  }
+
+  private static VisionIOFactory visionIOFactory(
+      String cameraName,
+      Class<? extends VisionIO> implementationType,
+      VisionSimulation simulationOwner,
+      Supplier<? extends VisionIO> constructor) {
+    return new VisionIOFactory(cameraName, simulationOwner, implementationType, constructor);
+  }
+
+  static HeadingProvider visionHeadingProvider(
+      DoubleFunction<Optional<Pose2d>> timestampedPose, Supplier<ChassisSpeeds> measuredSpeeds) {
+    return new HeadingProvider() {
+      @Override
+      public Optional<Rotation2d> headingAt(double fpgaTimestampSeconds) {
+        return timestampedPose.apply(fpgaTimestampSeconds).map(Pose2d::getRotation);
+      }
+
+      @Override
+      public Optional<Pose3d> seedPoseAt(double fpgaTimestampSeconds) {
+        return timestampedPose.apply(fpgaTimestampSeconds).map(Pose3d::new);
+      }
+
+      @Override
+      public double angularRateRadPerSecond() {
+        return measuredSpeeds.get().omegaRadiansPerSecond;
+      }
+
+      @Override
+      public double linearSpeedMetersPerSecond() {
+        ChassisSpeeds speeds = measuredSpeeds.get();
+        return Math.hypot(speeds.vxMetersPerSecond, speeds.vyMetersPerSecond);
+      }
+    };
+  }
+
+  static Runnable visionPreInputHook(Constants.Mode mode, Runnable simulationUpdate) {
+    return mode == Constants.Mode.SIM ? Objects.requireNonNull(simulationUpdate) : () -> {};
+  }
+
+  static void initializeVisionAiming(Consumer<Boolean> setAiming) {
+    setAiming.accept(false);
+  }
+
+  static void setVisionSimulationPoseSupplier(
+      VisionSimulation simulation, Supplier<Pose2d> poseSupplier) {
+    if (simulation != null) {
+      simulation.setPoseSupplier(poseSupplier);
+    }
+  }
+
+  /** Overrides the shared Photon simulation truth pose; this is a no-op outside SIM. */
+  public void setVisionSimulationPoseSupplier(Supplier<Pose2d> poseSupplier) {
+    setVisionSimulationPoseSupplier(visionSimulation, poseSupplier);
+  }
+
+  Vision vision() {
+    return vision;
+  }
+
+  int driverControllerPort() {
+    return driverController.getHID().getPort();
+  }
+
+  int operatorControllerPort() {
+    return operatorController.getHID().getPort();
   }
 
   static HopperIO createHopperIO(Constants.Mode mode) {
