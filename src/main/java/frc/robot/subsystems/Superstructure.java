@@ -1,5 +1,9 @@
 package frc.robot.subsystems;
 
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
@@ -12,7 +16,10 @@ import frc.robot.subsystems.intake.Intake.IntakeState;
 import frc.robot.subsystems.shooter.Shooter;
 import frc.robot.subsystems.shooter.Shooter.ShooterState;
 import frc.robot.subsystems.vision.Vision;
+import frc.robot.util.constants.FieldConstants;
+import frc.robot.util.constants.FieldConstants.FieldZones;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 public class Superstructure extends SubsystemBase {
@@ -34,6 +41,13 @@ public class Superstructure extends SubsystemBase {
     MANUAL_TRENCH
   }
 
+  private static final double ALIGNMENT_TOLERANCE_DEGREES = 5.0;
+  private static final double NEUTRAL_ZONE_HOOD_ROTATIONS = 1.25;
+  private static final double MANUAL_BUMPER_UP_RPM = 2500.0;
+  private static final double MANUAL_BUMPER_UP_HOOD_ROTATIONS = 0.0;
+  private static final double MANUAL_TRENCH_RPM = 2900.0;
+  private static final double MANUAL_TRENCH_HOOD_ROTATIONS = 0.75;
+
   private final Drive drive;
   private final Intake intake;
   private final Hopper hopper;
@@ -43,6 +57,12 @@ public class Superstructure extends SubsystemBase {
 
   private Superstate currentState = Superstate.DRIVE_STARTING_CONFIG;
   private ShootMode shootMode = ShootMode.DEFAULT_SHOOT_WITH_AIM;
+  private Alliance alliance = Alliance.Blue;
+  private boolean allianceConfirmed;
+  private FieldZones currentZone;
+  private Translation2d currentAimTarget = FieldConstants.Hub.BLUE_CENTER_POSE;
+  private double distanceToTargetMeters;
+  private boolean alignedToTarget;
 
   public Superstructure(Drive drive, Intake intake, Hopper hopper, Shooter shooter, Vision vision) {
     this(drive, intake, hopper, shooter, vision, Timer::new);
@@ -72,6 +92,28 @@ public class Superstructure extends SubsystemBase {
     return shootMode;
   }
 
+  public boolean isAlignedToTarget() {
+    return alignedToTarget;
+  }
+
+  public boolean isShootAllowed() {
+    return SuperstructureTargeting.isShootAllowed(allianceConfirmed, currentZone);
+  }
+
+  public boolean shouldUsePurgeDuringShoot() {
+    return shootMode == ShootMode.DEFAULT_SHOOT_WITH_AIM
+        && SuperstructureTargeting.isPurgeZone(allianceConfirmed, currentZone);
+  }
+
+  public boolean isSelectedShootAllowed() {
+    return shootMode != ShootMode.DEFAULT_SHOOT_WITH_AIM
+        || SuperstructureTargeting.isShootAllowed(allianceConfirmed, currentZone);
+  }
+
+  Translation2d getCurrentAimTarget() {
+    return currentAimTarget;
+  }
+
   private void configureSafeDefaults() {
     intake.setDesiredState(IntakeState.HOME);
     hopper.setDesiredState(HopperState.STOP);
@@ -97,9 +139,40 @@ public class Superstructure extends SubsystemBase {
           desiredState, IntakeState.INTAKE, HopperState.STOP, ShooterState.PREPFUEL);
       case OUTTAKE -> mechanismStateCommand(
           desiredState, IntakeState.OUTTAKE, HopperState.INDEX_TO_INTAKE, ShooterState.PREPFUEL);
-      case SHOOT_WITH_AIM, SHOOT_NO_AIM, MANUAL_SHOOT -> shootingPreparationCommand(desiredState);
-      case PURGE -> purgePreparationCommand();
+      case SHOOT_WITH_AIM -> shootWithAimCmd();
+      case SHOOT_NO_AIM -> shootNoAimCmd();
+      case MANUAL_SHOOT -> manualShootCmd();
+      case PURGE -> purgeCmd();
     };
+  }
+
+  public Command selectedShootModeCmd() {
+    return switch (shootMode) {
+      case DEFAULT_SHOOT_WITH_AIM -> shootWithAimCmd();
+      case MANUAL_BUMPER_UP -> createManualShootStateCommand(
+              MANUAL_BUMPER_UP_RPM, MANUAL_BUMPER_UP_HOOD_ROTATIONS)
+          .withName("Superstate(SHOOT->MANUAL_BUMPER_UP)");
+      case MANUAL_TRENCH -> createManualShootStateCommand(
+              MANUAL_TRENCH_RPM, MANUAL_TRENCH_HOOD_ROTATIONS)
+          .withName("Superstate(SHOOT->MANUAL_TRENCH)");
+    };
+  }
+
+  public Command purgeShootCmd() {
+    return purgeCmd().withName("Superstate(SHOOT->PURGE)");
+  }
+
+  public Command setShootModeCmd(ShootMode mode) {
+    Objects.requireNonNull(mode);
+    return Commands.runOnce(() -> shootMode = mode).withName("SetShootMode(" + mode.name() + ")");
+  }
+
+  public Command toggleShootModeCmd(ShootMode manualMode) {
+    Objects.requireNonNull(manualMode);
+    return Commands.runOnce(
+            () ->
+                shootMode = shootMode == manualMode ? ShootMode.DEFAULT_SHOOT_WITH_AIM : manualMode)
+        .withName("ToggleShootMode(" + manualMode.name() + ")");
   }
 
   public Command intakeOverrideCmd(IntakeState state) {
@@ -139,31 +212,114 @@ public class Superstructure extends SubsystemBase {
         .withName("Superstate(" + superstate.name() + ")");
   }
 
-  private Command shootingPreparationCommand(Superstate superstate) {
-    return Commands.run(
-            () -> {
-              hopper.setDesiredState(HopperState.STOP);
-              shooter.setDesiredState(ShooterState.SHOOT);
-              currentState = superstate;
-            },
-            this,
-            hopper,
-            shooter)
-        .withName("Superstate(" + superstate.name() + ":PREPARING)");
+  private void setHopperFeedWhenReady(boolean requireAlignment) {
+    boolean shooterReady = shooter.getCurrentState() == ShooterState.SHOOT;
+    boolean alignmentReady = !requireAlignment || alignedToTarget;
+    hopper.setDesiredState(
+        shooterReady && alignmentReady ? HopperState.INDEX_TO_SHOOTER : HopperState.STOP);
   }
 
-  private Command purgePreparationCommand() {
+  private Command createShootMechanismCommand(Superstate state, boolean requireAlignment) {
+    return Commands.run(
+        () -> {
+          shooter.setDesiredState(ShooterState.SHOOT);
+          setHopperFeedWhenReady(requireAlignment);
+          currentState = state;
+        },
+        this,
+        shooter,
+        hopper);
+  }
+
+  private Command shootWithAimCmd() {
+    if (!isShootAllowed()) {
+      return Commands.idle().withName("Superstate(SHOOT_WITH_AIM:DISALLOWED)");
+    }
+    if (SuperstructureTargeting.isPurgeZone(allianceConfirmed, currentZone)) {
+      return createPurgeMechanismCommand().withName("Superstate(SHOOT_WITH_AIM->PURGE)");
+    }
+    return createShootMechanismCommand(Superstate.SHOOT_WITH_AIM, true)
+        .withName("Superstate(SHOOT_WITH_AIM)");
+  }
+
+  private Command shootNoAimCmd() {
+    if (!isShootAllowed()) {
+      return Commands.idle().withName("Superstate(SHOOT_NO_AIM:DISALLOWED)");
+    }
+    return createShootMechanismCommand(Superstate.SHOOT_NO_AIM, true)
+        .withName("Superstate(SHOOT_NO_AIM)");
+  }
+
+  private Command createManualShootStateCommand(double rpm, double hoodRotations) {
     return Commands.run(
             () -> {
-              intake.setDesiredState(IntakeState.OUTTAKE);
-              hopper.setDesiredState(HopperState.STOP);
+              shooter.setSetpoint(rpm, hoodRotations);
               shooter.setDesiredState(ShooterState.SHOOT);
-              currentState = Superstate.PURGE;
+              setHopperFeedWhenReady(false);
+              currentState = Superstate.MANUAL_SHOOT;
             },
             this,
-            intake,
-            hopper,
-            shooter)
-        .withName("Superstate(PURGE:PREPARING)");
+            shooter,
+            hopper)
+        .alongWith(Commands.run(drive::stopWithX, drive));
+  }
+
+  private Command manualShootCmd() {
+    return createManualShootStateCommand(shooter.getTargetRpm(), shooter.getTargetHoodRotations())
+        .withName("Superstate(MANUAL_SHOOT)");
+  }
+
+  private Command createPurgeMechanismCommand() {
+    return Commands.run(
+        () -> {
+          intake.setDesiredState(IntakeState.OUTTAKE);
+          shooter.setDesiredState(ShooterState.SHOOT);
+          setHopperFeedWhenReady(true);
+          currentState = Superstate.PURGE;
+        },
+        this,
+        intake,
+        shooter,
+        hopper);
+  }
+
+  private Command purgeCmd() {
+    if (!SuperstructureTargeting.isPurgeZone(allianceConfirmed, currentZone)) {
+      return Commands.idle().withName("Superstate(PURGE:DISALLOWED)");
+    }
+    return createPurgeMechanismCommand().withName("Superstate(PURGE)");
+  }
+
+  private void updateTargeting(Pose2d pose) {
+    Optional<Alliance> dsAlliance = DriverStation.getAlliance();
+    if (dsAlliance.isPresent()) {
+      alliance = dsAlliance.orElseThrow();
+      allianceConfirmed = true;
+      currentZone = FieldZones.fromPose(pose, alliance);
+    } else {
+      alliance = Alliance.Blue;
+      allianceConfirmed = false;
+      currentZone = null;
+    }
+
+    currentAimTarget =
+        SuperstructureTargeting.resolveAimTarget(allianceConfirmed, currentZone, alliance);
+    distanceToTargetMeters = pose.getTranslation().getDistance(currentAimTarget);
+    alignedToTarget =
+        SuperstructureTargeting.isAligned(pose, currentAimTarget, ALIGNMENT_TOLERANCE_DEGREES);
+
+    if (currentState != Superstate.MANUAL_SHOOT) {
+      shooter.setSetpointForDistance(distanceToTargetMeters);
+      if (SuperstructureTargeting.isNeutralShootOrPurgeZone(allianceConfirmed, currentZone)) {
+        shooter.setSetpoint(shooter.getTargetRpm(), NEUTRAL_ZONE_HOOD_ROTATIONS);
+      }
+    }
+  }
+
+  @Override
+  public void periodic() {
+    updateTargeting(drive.getPose());
+    vision.setAiming(
+        currentState == Superstate.SHOOT_WITH_AIM || currentState == Superstate.SHOOT_NO_AIM);
   }
 }
