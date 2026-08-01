@@ -105,7 +105,7 @@ class SuperstructureStateCommandTest {
   }
 
   @Test
-  void shootingStatesUseTheirFinalTaskFourRequirementsAndLeaveIntakeHeld() {
+  void shootingStatesUseTheirTaskFiveRequirementsAndLeaveIntakeHeld() {
     harness.run(harness.superstructure.setStateCmd(Superstate.DRIVE));
     harness.setAlliance(AllianceStationID.Blue1);
     harness.setPose(new Pose2d(1.0, FieldConstants.FIELD_WIDTH / 2.0, Rotation2d.kZero));
@@ -113,7 +113,9 @@ class SuperstructureStateCommandTest {
     for (Superstate state : new Superstate[] {Superstate.SHOOT_WITH_AIM, Superstate.SHOOT_NO_AIM}) {
       Command command = harness.superstructure.setStateCmd(state);
       assertEquals(
-          Set.of(harness.superstructure, harness.hopper, harness.shooter),
+          state == Superstate.SHOOT_WITH_AIM
+              ? Set.of(harness.superstructure, harness.hopper, harness.shooter, harness.drive)
+              : Set.of(harness.superstructure, harness.hopper, harness.shooter),
           command.getRequirements());
 
       harness.run(command);
@@ -147,7 +149,8 @@ class SuperstructureStateCommandTest {
             unrotated.getTranslation(), target.minus(unrotated.getTranslation()).getAngle()));
     Command command = harness.superstructure.setStateCmd(Superstate.PURGE);
     assertEquals(
-        Set.of(harness.superstructure, harness.intake, harness.hopper, harness.shooter),
+        Set.of(
+            harness.superstructure, harness.intake, harness.hopper, harness.shooter, harness.drive),
         command.getRequirements());
 
     harness.run(command);
