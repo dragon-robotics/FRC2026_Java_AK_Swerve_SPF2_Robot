@@ -125,35 +125,108 @@ class ShooterTest {
     shooter.periodic();
     shooter.setSetpoint(2500.0, 0.75);
     shooter.setDesiredState(ShooterState.SHOOT);
-    io.measuredFlywheelRpm = 2379.0;
-    io.measuredHoodRotations = 0.625;
+    io.measuredFlywheelRpm = 2439.99;
+    io.measuredHoodRotations = 0.75;
     shooter.periodic();
     assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
     assertEquals(6.0, io.kickerVolts, 1e-9);
 
-    io.measuredFlywheelRpm = 2380.0;
+    io.measuredFlywheelRpm = 2440.0;
+    io.measuredHoodRotations = 0.6249;
+    shooter.periodic();
+    assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
+
+    io.measuredHoodRotations = 0.625;
     shooter.periodic();
     assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
     assertEquals(12.0, io.kickerVolts, 1e-9);
   }
 
   @Test
-  void readinessUsesAsymmetricInclusiveFlywheelBounds() {
+  void shootAcquisitionUsesInclusiveSymmetricUpperBound() {
     RecordingIO io = new RecordingIO();
     Shooter shooter = new Shooter(io);
-    shooter.setSetpoint(2500.0, 0.0);
-    io.measuredFlywheelRpm = 2380.0;
     shooter.periodic();
-    assertTrue(shooter.isFlywheelReady());
-    io.measuredFlywheelRpm = 2560.0;
-    shooter.periodic();
-    assertTrue(shooter.isFlywheelReady());
-    io.measuredFlywheelRpm = 2379.99;
-    shooter.periodic();
-    assertFalse(shooter.isFlywheelReady());
+    shooter.setSetpoint(2500.0, 0.75);
+    shooter.setDesiredState(ShooterState.SHOOT);
+    io.measuredHoodRotations = 0.75;
     io.measuredFlywheelRpm = 2560.01;
     shooter.periodic();
-    assertFalse(shooter.isFlywheelReady());
+    assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
+    io.measuredFlywheelRpm = 2560.0;
+    shooter.periodic();
+    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
+  }
+
+  @Test
+  void shootMaintenanceUsesInclusiveBiasedWindowAndImmediatePrepFallback() {
+    RecordingIO io = new RecordingIO();
+    Shooter shooter = new Shooter(io);
+    shooter.periodic();
+    shooter.setSetpoint(2500.0, 0.75);
+    shooter.setDesiredState(ShooterState.SHOOT);
+    io.measuredFlywheelRpm = 2500.0;
+    io.measuredHoodRotations = 0.75;
+    shooter.periodic();
+
+    io.measuredFlywheelRpm = 2380.0;
+    shooter.periodic();
+    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
+    assertEquals(12.0, io.kickerVolts, 1e-9);
+    io.measuredFlywheelRpm = 2560.0;
+    shooter.periodic();
+    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
+
+    io.measuredFlywheelRpm = 2379.99;
+    shooter.periodic();
+    assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
+    assertEquals(6.0, io.kickerVolts, 1e-9);
+
+    io.measuredFlywheelRpm = 2500.0;
+    shooter.periodic();
+    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
+    io.measuredFlywheelRpm = 2560.01;
+    shooter.periodic();
+    assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
+    assertEquals(6.0, io.kickerVolts, 1e-9);
+  }
+
+  @Test
+  void shootMaintenanceUsesHoodToleranceAndImmediatePrepFallback() {
+    RecordingIO io = new RecordingIO();
+    Shooter shooter = new Shooter(io);
+    shooter.periodic();
+    shooter.setSetpoint(2500.0, 0.75);
+    shooter.setDesiredState(ShooterState.SHOOT);
+    io.measuredFlywheelRpm = 2500.0;
+    io.measuredHoodRotations = 0.75;
+    shooter.periodic();
+
+    io.measuredHoodRotations = 0.875;
+    shooter.periodic();
+    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
+    io.measuredHoodRotations = 0.8751;
+    shooter.periodic();
+    assertEquals(ShooterState.TRANSITION, shooter.getCurrentState());
+    assertEquals(6.0, io.kickerVolts, 1e-9);
+  }
+
+  @Test
+  void satisfiedSetpointRefreshUsesMaintenanceWindowWithoutReacquiring() {
+    RecordingIO io = new RecordingIO();
+    Shooter shooter = new Shooter(io);
+    shooter.periodic();
+    shooter.setSetpoint(2500.0, 0.75);
+    shooter.setDesiredState(ShooterState.SHOOT);
+    io.measuredFlywheelRpm = 2500.0;
+    io.measuredHoodRotations = 0.75;
+    shooter.periodic();
+
+    shooter.setSetpoint(2580.0, 0.80);
+    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
+    shooter.periodic();
+    assertEquals(ShooterState.SHOOT, shooter.getCurrentState());
+    assertEquals(12.0, io.kickerVolts, 1e-9);
   }
 
   @Test
