@@ -128,6 +128,42 @@ class VisionStartupStrategyComparatorTest {
   }
 
   @Test
+  void constrainedSecondWinsWhenItsWorstErrorIsLowerBeyondTolerance() {
+    StrategyMetrics reference =
+        metrics(StartupStrategyOrder.REFERENCE, 0.10, 0.10, 0, 0.50, 10, 0.10, 0.25);
+    StrategyMetrics constrained =
+        metrics(StartupStrategyOrder.CONSTRAINED_SECOND, 0.10, 0.10, 0, 0.50, 10, 0.10, 0.10);
+
+    assertEquals(
+        Optional.of(StartupStrategyOrder.CONSTRAINED_SECOND),
+        VisionStartupStrategyComparisonSupport.winner(reference, constrained));
+  }
+
+  @Test
+  void meanErrorPriorityOverridesOpposingWorstErrorAndCoverage() {
+    StrategyMetrics reference =
+        metrics(StartupStrategyOrder.REFERENCE, 0.10, 0.10, 0, 0.40, 10, 0.05, 0.30);
+    StrategyMetrics constrained =
+        metrics(StartupStrategyOrder.CONSTRAINED_SECOND, 0.10, 0.10, 0, 0.60, 10, 0.08, 0.20);
+
+    assertEquals(
+        Optional.of(StartupStrategyOrder.REFERENCE),
+        VisionStartupStrategyComparisonSupport.winner(reference, constrained));
+  }
+
+  @Test
+  void worstErrorPriorityOverridesOpposingCoverageWhenMeansTie() {
+    StrategyMetrics reference =
+        metrics(StartupStrategyOrder.REFERENCE, 0.10, 0.10, 0, 0.40, 10, 0.10, 0.10);
+    StrategyMetrics constrained =
+        metrics(StartupStrategyOrder.CONSTRAINED_SECOND, 0.10, 0.10, 0, 0.60, 10, 0.10, 0.20);
+
+    assertEquals(
+        Optional.of(StartupStrategyOrder.REFERENCE),
+        VisionStartupStrategyComparisonSupport.winner(reference, constrained));
+  }
+
+  @Test
   void worstErrorEqualityAdvancesToHigherCoverage() {
     StrategyMetrics reference =
         metrics(StartupStrategyOrder.REFERENCE, 0.10, 0.10, 0, 0.50, 10, 0.10, 0.00);
@@ -189,6 +225,13 @@ class VisionStartupStrategyComparatorTest {
         Optional.of(VisionConstants.DEFAULT_STARTUP_STRATEGY_ORDER),
         VisionStartupStrategyComparisonSupport.winner(
             LAST_VERIFIED_REFERENCE_METRICS, LAST_VERIFIED_CONSTRAINED_SECOND_METRICS));
+  }
+
+  @Test
+  void negativeMovingExcessJumpCountFailsTheExactZeroSafetyGate() {
+    assertFalse(
+        metrics(StartupStrategyOrder.REFERENCE, 0.10, 0.10, -1, 0.50, 10, 0.10, 0.20)
+            .passesSafetyGates());
   }
 
   private static StrategyMetrics safeMetrics(StartupStrategyOrder order) {
