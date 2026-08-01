@@ -101,7 +101,7 @@ reference behavior.
 | `DRIVE_STARTING_CONFIG` | `HOME` | `STOP` | `PREPFUEL` | Default drive remains available |
 | `DRIVE` | `DEPLOYED` | `STOP` | `PREPFUEL` | Default drive remains available |
 | `INTAKE` | `INTAKE` | `STOP` | `PREPFUEL` | Default drive remains available |
-| `OUTTAKE` | `OUTTAKE` | `INDEXTOINTAKE` | `PREPFUEL` | Default drive remains available |
+| `OUTTAKE` | `OUTTAKE` | `INDEX_TO_INTAKE` | `PREPFUEL` | Default drive remains available |
 | `SHOOT_WITH_AIM` | Unchanged | Readiness-gated feed | `SHOOT` | Stationary target aim |
 | `SHOOT_NO_AIM` | Unchanged | Readiness-gated feed | `SHOOT` | Unclaimed |
 | `MANUAL_SHOOT` | Unchanged | Shooter-readiness-gated feed | `SHOOT` with fixed setpoint | Brake |
@@ -112,13 +112,17 @@ hand ownership from one state to the next. Commands require Superstructure plus 
 they actively control. Aimed commands require Drive; `SHOOT_NO_AIM` does not. The independent
 Juicer override requires only Intake so it may coexist with a non-purge driver shot.
 
-Default mechanism commands provide the approved startup state:
+The constructor and mechanism defaults provide the approved startup state:
 
 - Intake: `HOME`
 - Hopper: `STOP`
 - Shooter: `PREPFUEL`
 
-The logged initial superstate is `DRIVE_STARTING_CONFIG`, matching actual mechanism requests.
+Intake is seeded to `HOME`, then its default command holds the last explicit request without changing
+it. This preserves the `Unchanged` Intake contract during a shot after the preceding coordinated
+state command is interrupted. Hopper and Shooter defaults continuously restore `STOP` and
+`PREPFUEL`. The logged initial superstate is `DRIVE_STARTING_CONFIG`, matching actual mechanism
+requests.
 
 ## Shooting and feed gating
 
@@ -126,7 +130,7 @@ Shooter readiness is `shooter.getCurrentState() == ShooterState.SHOOT`. This is 
 instead of raw flywheel readiness because Shooter reaches `SHOOT` only after both its asymmetric
 flywheel window and hood-position tolerance are satisfied.
 
-For aimed, no-aim, and purge shots, Hopper changes to `INDEXTOSHOOTER` only when:
+For aimed, no-aim, and purge shots, Hopper changes to `INDEX_TO_SHOOTER` only when:
 
 1. Shooter is in `SHOOT`; and
 2. the robot's geometric field heading is strictly within 5 degrees of the active target.
@@ -303,7 +307,7 @@ Implementation follows test-driven development. Focused tests precede each behav
 - Alignment uses a strict 5-degree boundary and correct angle wrapping.
 - Zone restrictions include every allowed and disallowed zone.
 - A disallowed shot neither commands mechanisms nor claims Drive.
-- Shooter state plus alignment gates Hopper feeding.
+- Shooter state plus alignment gates Hopper `INDEX_TO_SHOOTER` feeding.
 - Manual shooting omits alignment gating and applies each approved preset.
 - Neutral-zone hood target is exactly 1.25 rotations while preserving interpolated RPM.
 - Vision aiming is true only for the two specified shoot states.
