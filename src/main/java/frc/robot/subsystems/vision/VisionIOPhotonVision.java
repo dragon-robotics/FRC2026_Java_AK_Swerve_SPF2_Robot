@@ -6,6 +6,7 @@ import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.math.numbers.N8;
+import edu.wpi.first.wpilibj.Timer;
 import frc.robot.subsystems.vision.VisionConstants.CameraConfig;
 import frc.robot.subsystems.vision.VisionIO.PoseObservation;
 import frc.robot.subsystems.vision.VisionIO.PoseObservationType;
@@ -128,6 +129,11 @@ public class VisionIOPhotonVision implements VisionIO {
 
   @Override
   public void updateInputs(VisionIOInputs inputs) {
+    updateInputs(inputs, Timer.getFPGATimestamp());
+  }
+
+  @Override
+  public void updateInputs(VisionIOInputs inputs, double nowSeconds) {
     inputs.cameraName = cameraSource.name();
     inputs.connected = cameraSource.isConnected();
     inputs.latestTargetObservation = TargetObservation.NONE;
@@ -137,7 +143,7 @@ public class VisionIOPhotonVision implements VisionIO {
     List<PoseObservation> observations = new ArrayList<>();
     List<Integer> cameraTagIds = new ArrayList<>();
     for (PhotonPipelineResult result : cameraSource.getAllUnreadResults()) {
-      processResult(result, inputs, observations, cameraTagIds);
+      processResult(result, nowSeconds, inputs, observations, cameraTagIds);
     }
 
     inputs.setPoseObservations(observations.toArray(NO_POSE_OBSERVATIONS));
@@ -146,6 +152,7 @@ public class VisionIOPhotonVision implements VisionIO {
 
   private void processResult(
       PhotonPipelineResult result,
+      double nowSeconds,
       VisionIOInputs inputs,
       List<PoseObservation> observations,
       List<Integer> cameraTagIds) {
@@ -169,7 +176,13 @@ public class VisionIOPhotonVision implements VisionIO {
       return;
     }
 
+    boolean historyTimestampValid =
+        VisionConsensus.timestampRejectionReason(result.getTimestampSeconds(), nowSeconds)
+            .isEmpty();
     for (PoseSolveStrategy strategy : strategyOrder(result)) {
+      if (!historyTimestampValid && requiresPoseHistory(strategy)) {
+        continue;
+      }
       Optional<EstimatedRobotPose> estimate = attemptStrategy(strategy, result);
       if (estimate.isEmpty()) {
         continue;
@@ -183,6 +196,11 @@ public class VisionIOPhotonVision implements VisionIO {
       }
       return;
     }
+  }
+
+  private static boolean requiresPoseHistory(PoseSolveStrategy strategy) {
+    return strategy == PoseSolveStrategy.PNP_DISTANCE_TRIG_SOLVE
+        || strategy == PoseSolveStrategy.CONSTRAINED_SOLVEPNP;
   }
 
   List<PoseSolveStrategy> strategyOrder(PhotonPipelineResult result) {
