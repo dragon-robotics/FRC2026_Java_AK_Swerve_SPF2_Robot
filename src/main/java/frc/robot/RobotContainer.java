@@ -18,9 +18,11 @@ import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
+import edu.wpi.first.wpilibj2.command.button.Trigger;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.commands.DriveCommands;
 import frc.robot.subsystems.Superstructure;
+import frc.robot.subsystems.Superstructure.ShootMode;
 import frc.robot.subsystems.Superstructure.Superstate;
 import frc.robot.subsystems.drive.Drive;
 import frc.robot.subsystems.drive.GyroIO;
@@ -34,6 +36,7 @@ import frc.robot.subsystems.hopper.HopperIO;
 import frc.robot.subsystems.hopper.HopperIOSim;
 import frc.robot.subsystems.hopper.HopperIOTalonFX;
 import frc.robot.subsystems.intake.Intake;
+import frc.robot.subsystems.intake.Intake.IntakeState;
 import frc.robot.subsystems.intake.IntakeIO;
 import frc.robot.subsystems.intake.IntakeIOSim;
 import frc.robot.subsystems.intake.IntakeIOTalonFX;
@@ -54,6 +57,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.DoubleFunction;
@@ -184,25 +188,87 @@ public class RobotContainer {
             superstructure::setRotationLastTriggered,
             superstructure::getZoneLockedHeading));
 
-    // Reset gyro to 0° when start and back buttons are pressed
-    driverController
+    configureSuperstructureBindings(
+        driverController, operatorController, drive, intake, hopper, shooter, superstructure);
+  }
+
+  static void configureSuperstructureBindings(
+      CommandXboxController driver,
+      CommandXboxController operator,
+      Drive drive,
+      Intake intake,
+      Hopper hopper,
+      Shooter shooter,
+      Superstructure superstructure) {
+    driver
+        .leftTrigger(0.2)
+        .onTrue(superstructure.setStateCmd(Superstate.INTAKE))
+        .onFalse(superstructure.setStateCmd(Superstate.DRIVE));
+    driver
+        .rightBumper()
+        .onTrue(superstructure.setStateCmd(Superstate.OUTTAKE))
+        .onFalse(superstructure.setStateCmd(Superstate.DRIVE));
+
+    Trigger shootTrigger = driver.rightTrigger(0.2);
+    shootTrigger
+        .and(superstructure::shouldUsePurgeDuringShoot)
+        .whileTrue(
+            Commands.defer(
+                superstructure::purgeShootCmd,
+                Set.of(superstructure, drive, intake, hopper, shooter)));
+    shootTrigger
+        .and(() -> !superstructure.shouldUsePurgeDuringShoot())
+        .and(superstructure::isSelectedShootAllowed)
+        .whileTrue(
+            Commands.defer(
+                superstructure::selectedShootModeCmd,
+                Set.of(superstructure, drive, hopper, shooter)));
+    shootTrigger.onFalse(superstructure.setStateCmd(Superstate.DRIVE));
+
+    driver
+        .b()
+        .whileTrue(superstructure.intakeOverrideCmd(IntakeState.JUICER))
+        .onFalse(superstructure.intakeOverrideCmd(IntakeState.DEPLOYED));
+    driver
+        .a()
+        .whileTrue(superstructure.setStateCmd(Superstate.DRIVE_STARTING_CONFIG))
+        .onFalse(superstructure.setStateCmd(Superstate.DRIVE));
+
+    driver
         .start()
-        .and(driverController.back())
+        .and(driver.back())
         .onTrue(
             Commands.runOnce(
-                    () ->
-                        drive.setPose(
-                            new Pose2d(drive.getPose().getTranslation(), Rotation2d.kZero)),
+                    () -> {
+                      drive.setPose(new Pose2d(drive.getPose().getTranslation(), Rotation2d.kZero));
+                      superstructure.setCurrentHeading(Optional.empty());
+                    },
                     drive)
                 .ignoringDisable(true)
                 .withName("Driver Heading Reset"));
 
-    operatorController
-        .start()
-        .and(operatorController.back())
-        .onTrue(
-            Commands.runOnce(vision::forceReseedFromVision, vision)
-                .withName("Force Vision Reseed"));
+    operator.start().and(operator.back()).onTrue(superstructure.forceReseedFromVisionCmd());
+    operator
+        .b()
+        .and(operator.a().negate())
+        .whileTrue(superstructure.intakeOverrideCmd(IntakeState.JUICER))
+        .onFalse(superstructure.intakeOverrideCmd(IntakeState.DEPLOYED));
+    operator
+        .x()
+        .and(operator.a())
+        .onTrue(superstructure.toggleShootModeCmd(ShootMode.MANUAL_BUMPER_UP));
+    operator
+        .a()
+        .and(operator.b())
+        .onTrue(superstructure.toggleShootModeCmd(ShootMode.MANUAL_TRENCH));
+    operator
+        .rightBumper()
+        .whileTrue(
+            Commands.runEnd(
+                    () -> shooter.runKickerPercentage(1.0),
+                    () -> shooter.runKickerPercentage(0.0),
+                    shooter)
+                .withName("Kicker Full Power"));
   }
 
   /**
