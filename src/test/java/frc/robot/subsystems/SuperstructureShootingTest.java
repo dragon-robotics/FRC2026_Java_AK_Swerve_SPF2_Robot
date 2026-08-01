@@ -107,6 +107,27 @@ class SuperstructureShootingTest {
   }
 
   @Test
+  void readyShooterFeedsAcrossNeutralZoneTargetRefresh() {
+    harness.setAlliance(AllianceStationID.Blue1);
+    Pose2d unrotated = harness.poseInside(FieldZones.NEUTRAL_LEFT_SHOOT);
+    Translation2d target = FieldConstants.AimPoints.BLUE_LEFT_SHOOT_POINT;
+    Pose2d aligned =
+        new Pose2d(unrotated.getTranslation(), target.minus(unrotated.getTranslation()).getAngle());
+    harness.setPose(aligned);
+    assertTrue(harness.superstructure.isAlignedToTarget());
+
+    Command command = harness.superstructure.setStateCmd(Superstate.SHOOT_NO_AIM);
+    harness.run(command);
+    harness.makeShooterReady();
+    assertEquals(ShooterState.SHOOT, harness.shooter.getCurrentState());
+
+    CommandScheduler.getInstance().run();
+
+    assertEquals(ShooterState.SHOOT, harness.shooter.getCurrentState());
+    assertEquals(HopperState.INDEX_TO_SHOOTER, harness.hopper.getDesiredState());
+  }
+
+  @Test
   void everyNeutralShootAndPurgeZoneCapsHoodWithoutChangingInterpolatedRpm() {
     harness.setAlliance(AllianceStationID.Blue1);
     for (FieldZones zone :
