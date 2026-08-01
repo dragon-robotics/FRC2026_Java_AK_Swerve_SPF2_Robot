@@ -80,7 +80,7 @@
 
 ### New isolated Photon-simulation test files
 
-- `src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationHarness.java`
+- `src/test/java/frc/robot/subsystems/vision/VisionSimulationHarness.java`
 - `src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationLifecycleTest.java`
 - `src/test/java/frc/robot/subsystems/vision/sim/VisionPhotonScenariosTest.java`
 - `src/test/java/frc/robot/subsystems/vision/sim/VisionStartupStrategyComparisonTest.java`
@@ -930,7 +930,7 @@ git -c safe.directory='C:/FRC_Software/FRC 2026 Software/Projects/FRC2026_Java_A
 - Modify: `src/main/java/frc/robot/subsystems/vision/VisionIOPhotonVision.java`
 - Create: `src/main/java/frc/robot/subsystems/vision/VisionSimulation.java`
 - Create: `src/main/java/frc/robot/subsystems/vision/VisionIOPhotonVisionSim.java`
-- Create: `src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationHarness.java`
+- Create: `src/test/java/frc/robot/subsystems/vision/VisionSimulationHarness.java`
 - Create: `src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationLifecycleTest.java`
 - Create: `src/test/java/frc/robot/subsystems/vision/sim/VisionPhotonScenariosTest.java`
 - Modify: `docs/superpowers/specs/2026-07-31-vision-subsystem-port-design.md`
@@ -1049,7 +1049,7 @@ Expected: normal tests exclude `vision-sim`; the isolated task reports `BUILD SU
 - [ ] Commit only Task 8:
 
 ```powershell
-git -c safe.directory='C:/FRC_Software/FRC 2026 Software/Projects/FRC2026_Java_AK_Swerve_SPF2_Robot' add build.gradle src/main/java/frc/robot/subsystems/vision/VisionSimulation.java src/main/java/frc/robot/subsystems/vision/VisionIOPhotonVisionSim.java src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationHarness.java src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationLifecycleTest.java src/test/java/frc/robot/subsystems/vision/sim/VisionPhotonScenariosTest.java
+git -c safe.directory='C:/FRC_Software/FRC 2026 Software/Projects/FRC2026_Java_AK_Swerve_SPF2_Robot' add build.gradle src/main/java/frc/robot/subsystems/vision/VisionSimulation.java src/main/java/frc/robot/subsystems/vision/VisionIOPhotonVisionSim.java src/test/java/frc/robot/subsystems/vision/VisionSimulationHarness.java src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationLifecycleTest.java src/test/java/frc/robot/subsystems/vision/sim/VisionPhotonScenariosTest.java
 git -c safe.directory='C:/FRC_Software/FRC 2026 Software/Projects/FRC2026_Java_AK_Swerve_SPF2_Robot' commit -m "test(vision): add isolated four-camera Photon simulation"
 ```
 
@@ -1063,7 +1063,7 @@ git -c safe.directory='C:/FRC_Software/FRC 2026 Software/Projects/FRC2026_Java_A
 - Create: `src/test/java/frc/robot/subsystems/vision/VisionStartupStrategyComparisonSupport.java`
 - Create: `src/test/java/frc/robot/subsystems/vision/VisionStartupStrategyComparatorTest.java`
 - Create: `src/test/java/frc/robot/subsystems/vision/sim/VisionStartupStrategyComparisonTest.java`
-- Modify: `src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationHarness.java`
+- Modify: `src/test/java/frc/robot/subsystems/vision/VisionSimulationHarness.java`
 - Modify: `src/test/java/frc/robot/subsystems/vision/VisionConstantsTest.java`
 
 **Interfaces:**
@@ -1148,7 +1148,7 @@ Expected: both commands report `BUILD SUCCESSFUL`; the compiled default matches 
 - [ ] Commit only Task 9; retain both measured metric records in the regression test and report the winner in the implementation handoff:
 
 ```powershell
-git -c safe.directory='C:/FRC_Software/FRC 2026 Software/Projects/FRC2026_Java_AK_Swerve_SPF2_Robot' add src/main/java/frc/robot/subsystems/vision/VisionConstants.java src/test/java/frc/robot/subsystems/vision/VisionStartupStrategyComparisonSupport.java src/test/java/frc/robot/subsystems/vision/VisionStartupStrategyComparatorTest.java src/test/java/frc/robot/subsystems/vision/sim/VisionStartupStrategyComparisonTest.java src/test/java/frc/robot/subsystems/vision/sim/VisionSimulationHarness.java src/test/java/frc/robot/subsystems/vision/VisionConstantsTest.java
+git -c safe.directory='C:/FRC_Software/FRC 2026 Software/Projects/FRC2026_Java_AK_Swerve_SPF2_Robot' add src/main/java/frc/robot/subsystems/vision/VisionConstants.java src/test/java/frc/robot/subsystems/vision/VisionStartupStrategyComparisonSupport.java src/test/java/frc/robot/subsystems/vision/VisionStartupStrategyComparatorTest.java src/test/java/frc/robot/subsystems/vision/sim/VisionStartupStrategyComparisonTest.java src/test/java/frc/robot/subsystems/vision/VisionSimulationHarness.java src/test/java/frc/robot/subsystems/vision/VisionConstantsTest.java
 git -c safe.directory='C:/FRC_Software/FRC 2026 Software/Projects/FRC2026_Java_AK_Swerve_SPF2_Robot' commit -m "test(vision): select deterministic startup strategy order"
 ```
 
