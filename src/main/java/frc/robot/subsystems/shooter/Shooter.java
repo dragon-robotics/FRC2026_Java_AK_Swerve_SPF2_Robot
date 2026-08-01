@@ -85,6 +85,11 @@ public class Shooter extends SubsystemBase {
     setSetpoint(setpoint.flywheelRpm(), setpoint.hoodRotations());
   }
 
+  public void setSetpointForDistance(double distanceMeters, double hoodRotations) {
+    ShooterSetpoint setpoint = ShooterConstants.getSetpointForDistance(distanceMeters);
+    setSetpoint(setpoint.flywheelRpm(), hoodRotations);
+  }
+
   public void runFlywheelVelocity(double rpm) {
     io.setFlywheelVelocity(rpm);
   }

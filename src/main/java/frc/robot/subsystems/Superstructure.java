@@ -407,9 +407,10 @@ public class Superstructure extends SubsystemBase {
         SuperstructureTargeting.isAligned(pose, currentAimTarget, ALIGNMENT_TOLERANCE_DEGREES);
 
     if (currentState != Superstate.MANUAL_SHOOT) {
-      shooter.setSetpointForDistance(distanceToTargetMeters);
       if (SuperstructureTargeting.isNeutralShootOrPurgeZone(allianceConfirmed, currentZone)) {
-        shooter.setSetpoint(shooter.getTargetRpm(), NEUTRAL_ZONE_HOOD_ROTATIONS);
+        shooter.setSetpointForDistance(distanceToTargetMeters, NEUTRAL_ZONE_HOOD_ROTATIONS);
+      } else {
+        shooter.setSetpointForDistance(distanceToTargetMeters);
       }
     }
   }
