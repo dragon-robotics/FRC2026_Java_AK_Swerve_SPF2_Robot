@@ -3,6 +3,7 @@ package frc.robot.subsystems;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.Timer;
@@ -18,11 +19,15 @@ import frc.robot.subsystems.intake.Intake.IntakeState;
 import frc.robot.subsystems.shooter.Shooter;
 import frc.robot.subsystems.shooter.Shooter.ShooterState;
 import frc.robot.subsystems.vision.Vision;
+import frc.robot.util.HubShiftUtil;
+import frc.robot.util.HubShiftUtil.ShiftEnum;
+import frc.robot.util.HubShiftUtil.ShiftInfo;
 import frc.robot.util.constants.FieldConstants;
 import frc.robot.util.constants.FieldConstants.FieldZones;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.littletonrobotics.junction.Logger;
 
 public class Superstructure extends SubsystemBase {
   /** Robot Superstates */
@@ -67,6 +72,7 @@ public class Superstructure extends SubsystemBase {
   private boolean alignedToTarget;
   private Optional<Rotation2d> currentHeading = Optional.empty();
   private double rotationLastTriggered;
+  private ShiftInfo shiftedShiftInfo = new ShiftInfo(ShiftEnum.DISABLED, 0.0, 0.0, false);
 
   public Superstructure(Drive drive, Intake intake, Hopper hopper, Shooter shooter, Vision vision) {
     this(drive, intake, hopper, shooter, vision, Timer::new);
@@ -112,6 +118,14 @@ public class Superstructure extends SubsystemBase {
   public boolean isSelectedShootAllowed() {
     return shootMode != ShootMode.DEFAULT_SHOOT_WITH_AIM
         || SuperstructureTargeting.isShootAllowed(allianceConfirmed, currentZone);
+  }
+
+  public boolean isHubActive() {
+    return shiftedShiftInfo.active();
+  }
+
+  public double getShiftTimeRemaining() {
+    return shiftedShiftInfo.remainingTime();
   }
 
   public Optional<Rotation2d> getCurrentHeading() {
@@ -400,10 +414,57 @@ public class Superstructure extends SubsystemBase {
     }
   }
 
+  private boolean isFeedReadyForCurrentState() {
+    boolean shooterReady = shooter.getCurrentState() == ShooterState.SHOOT;
+    return switch (currentState) {
+      case SHOOT_WITH_AIM, SHOOT_NO_AIM, PURGE -> shooterReady && alignedToTarget;
+      case MANUAL_SHOOT -> shooterReady;
+      default -> false;
+    };
+  }
+
+  private static void recordShiftInfo(String prefix, ShiftInfo shiftInfo) {
+    Logger.recordOutput(prefix + "/CurrentShift", shiftInfo.currentShift().name());
+    Logger.recordOutput(prefix + "/Active", shiftInfo.active());
+    Logger.recordOutput(prefix + "/ElapsedTime", shiftInfo.elapsedTime());
+    Logger.recordOutput(prefix + "/RemainingTime", shiftInfo.remainingTime());
+  }
+
   @Override
   public void periodic() {
     updateTargeting(drive.getPose());
     vision.setAiming(
         currentState == Superstate.SHOOT_WITH_AIM || currentState == Superstate.SHOOT_NO_AIM);
+
+    ShiftInfo officialShiftInfo = HubShiftUtil.getOfficialShiftInfo();
+    shiftedShiftInfo = HubShiftUtil.getShiftedShiftInfo();
+
+    Logger.recordOutput("Superstructure/CurrentState", currentState.name());
+    Logger.recordOutput("Superstructure/ShootMode", shootMode.name());
+    Logger.recordOutput("Superstructure/AllianceConfirmed", allianceConfirmed);
+    Logger.recordOutput(
+        "Superstructure/Alliance", allianceConfirmed ? alliance.name() : "UNCONFIRMED");
+    Logger.recordOutput(
+        "Superstructure/Zone",
+        allianceConfirmed && currentZone != null ? currentZone.name() : "UNCONFIRMED");
+    Logger.recordOutput("Superstructure/AimTarget", currentAimTarget);
+    Logger.recordOutput("Superstructure/DistanceToTargetMeters", distanceToTargetMeters);
+    Logger.recordOutput(
+        "Superstructure/DistanceToTargetFeet", Units.metersToFeet(distanceToTargetMeters));
+    Logger.recordOutput("Superstructure/IsAlignedToTarget", alignedToTarget);
+    Logger.recordOutput(
+        "Superstructure/ShooterReady", shooter.getCurrentState() == ShooterState.SHOOT);
+    Logger.recordOutput("Superstructure/FeedReady", isFeedReadyForCurrentState());
+    Logger.recordOutput(
+        "Superstructure/ShootAllowed",
+        SuperstructureTargeting.isShootAllowed(allianceConfirmed, currentZone));
+    Logger.recordOutput(
+        "Superstructure/PurgeZone",
+        SuperstructureTargeting.isPurgeZone(allianceConfirmed, currentZone));
+
+    recordShiftInfo("HubShift/Official", officialShiftInfo);
+    recordShiftInfo("HubShift/Shifted", shiftedShiftInfo);
+    Logger.recordOutput(
+        "HubShift/FirstActiveAlliance", HubShiftUtil.getFirstActiveAlliance().name());
   }
 }

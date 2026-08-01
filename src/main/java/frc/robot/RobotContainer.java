@@ -15,6 +15,7 @@ import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.GenericHID;
 import edu.wpi.first.wpilibj.XboxController;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
@@ -52,9 +53,11 @@ import frc.robot.subsystems.vision.VisionIOPhotonVision.HeadingProvider;
 import frc.robot.subsystems.vision.VisionIOPhotonVisionSim;
 import frc.robot.subsystems.vision.VisionRuntimeConfig;
 import frc.robot.subsystems.vision.VisionSimulation;
+import frc.robot.util.HubShiftUtil;
 import frc.robot.util.constants.OperatorConstants;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -138,6 +141,7 @@ public class RobotContainer {
     hopper = new Hopper(createHopperIO(Constants.currentMode));
     shooter = new Shooter(createShooterIO(Constants.currentMode));
     superstructure = new Superstructure(drive, intake, hopper, shooter, vision);
+    configureHubShiftOverride();
 
     // Set up auto routines
     autoChooser =
@@ -278,6 +282,28 @@ public class RobotContainer {
    */
   public Command getAutonomousCommand() {
     return autoChooser.get();
+  }
+
+  static Optional<Boolean> parseHubShiftOverride(String value) {
+    if (value == null) return Optional.empty();
+    return switch (value.trim().toLowerCase(Locale.ROOT)) {
+      case "true" -> Optional.of(true);
+      case "false" -> Optional.of(false);
+      default -> Optional.empty();
+    };
+  }
+
+  static void installHubShiftOverride(
+      Consumer<Supplier<Optional<Boolean>>> installer, Supplier<String> dashboardValue) {
+    Supplier<String> checkedValue = Objects.requireNonNull(dashboardValue);
+    Objects.requireNonNull(installer).accept(() -> parseHubShiftOverride(checkedValue.get()));
+  }
+
+  private static void configureHubShiftOverride() {
+    SmartDashboard.putString("HubShift/WonAuto", "");
+    installHubShiftOverride(
+        HubShiftUtil::setAllianceWinOverride,
+        () -> SmartDashboard.getString("HubShift/WonAuto", ""));
   }
 
   static <D, C, V> DriveVisionConstruction<D, V> constructDriveThenVision(

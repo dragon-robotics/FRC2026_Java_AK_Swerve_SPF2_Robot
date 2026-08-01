@@ -10,6 +10,9 @@ package frc.robot;
 import edu.wpi.first.wpilibj.Threads;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import frc.robot.util.HubShiftUtil;
+import java.util.Objects;
+import java.util.function.Supplier;
 import org.littletonrobotics.junction.LogFileUtil;
 import org.littletonrobotics.junction.LoggedRobot;
 import org.littletonrobotics.junction.Logger;
@@ -101,12 +104,16 @@ public class Robot extends LoggedRobot {
   /** This autonomous runs the autonomous command selected by your {@link RobotContainer} class. */
   @Override
   public void autonomousInit() {
-    autonomousCommand = robotContainer.getAutonomousCommand();
+    autonomousCommand =
+        startAutonomous(HubShiftUtil::initialize, robotContainer::getAutonomousCommand);
+  }
 
-    // schedule the autonomous command (example)
-    if (autonomousCommand != null) {
-      CommandScheduler.getInstance().schedule(autonomousCommand);
-    }
+  static Command startAutonomous(
+      Runnable initializer, Supplier<Command> autonomousCommandSupplier) {
+    Objects.requireNonNull(initializer).run();
+    Command command = Objects.requireNonNull(autonomousCommandSupplier).get();
+    if (command != null) command.schedule();
+    return command;
   }
 
   /** This function is called periodically during autonomous. */
@@ -116,13 +123,12 @@ public class Robot extends LoggedRobot {
   /** This function is called once when teleop is enabled. */
   @Override
   public void teleopInit() {
-    // This makes sure that the autonomous stops running when
-    // teleop starts running. If you want the autonomous to
-    // continue until interrupted by another command, remove
-    // this line or comment it out.
-    if (autonomousCommand != null) {
-      autonomousCommand.cancel();
-    }
+    startTeleop(HubShiftUtil::initialize, autonomousCommand);
+  }
+
+  static void startTeleop(Runnable initializer, Command autonomousCommand) {
+    if (autonomousCommand != null) autonomousCommand.cancel();
+    Objects.requireNonNull(initializer).run();
   }
 
   /** This function is called periodically during operator control. */
