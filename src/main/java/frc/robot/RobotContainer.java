@@ -56,6 +56,7 @@ import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.DoubleFunction;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
@@ -117,11 +118,15 @@ public class RobotContainer {
 
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
+    this(drive -> VisionRuntimeConfig.fromSystemProperties());
+  }
+
+  RobotContainer(Function<Drive, VisionRuntimeConfig> visionConfigConstructor) {
     Constants.Mode mode = Constants.currentMode;
     DriveVisionConstruction<Drive, VisionStack> driveVision =
         constructDriveThenVision(
             () -> createDrive(mode),
-            VisionRuntimeConfig::fromSystemProperties,
+            visionConfigConstructor,
             (constructedDrive, config) -> createVisionStack(mode, constructedDrive, config));
     drive = driveVision.drive();
     vision = driveVision.vision().vision();
@@ -217,10 +222,10 @@ public class RobotContainer {
 
   static <D, C, V> DriveVisionConstruction<D, V> constructDriveThenVision(
       Supplier<D> driveConstructor,
-      Supplier<C> configConstructor,
+      Function<D, C> configConstructor,
       BiFunction<D, C, V> visionConstructor) {
     D constructedDrive = Objects.requireNonNull(driveConstructor.get());
-    C config = Objects.requireNonNull(configConstructor.get());
+    C config = Objects.requireNonNull(configConstructor.apply(constructedDrive));
     V constructedVision = Objects.requireNonNull(visionConstructor.apply(constructedDrive, config));
     return new DriveVisionConstruction<>(constructedDrive, constructedVision);
   }
@@ -354,6 +359,14 @@ public class RobotContainer {
 
   Vision vision() {
     return vision;
+  }
+
+  Drive drive() {
+    return drive;
+  }
+
+  VisionSimulation visionSimulation() {
+    return visionSimulation;
   }
 
   int driverControllerPort() {

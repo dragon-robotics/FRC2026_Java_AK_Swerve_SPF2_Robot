@@ -33,8 +33,9 @@ class RobotContainerVisionTest {
               events.add("drive");
               return "constructed-drive";
             },
-            () -> {
+            drive -> {
               events.add("config");
+              assertEquals("constructed-drive", drive);
               return expectedConfig;
             },
             (drive, config) -> {
