@@ -33,8 +33,11 @@ final class ShooterConstants {
   static final Voltage HOOD_MAX_VOLTAGE = Volts.of(10.0);
   static final double DEFAULT_FLYWHEEL_RPM = 2500.0;
   static final double PREP_FLYWHEEL_RPM = 1200.0;
-  static final double READY_BELOW_RPM = 120.0;
-  static final double READY_ABOVE_RPM = 60.0;
+  static final double SHOOT_ENTRY_TOLERANCE_RPM = 60.0;
+  static final double SHOOT_MAINTENANCE_BELOW_RPM = 120.0;
+  static final double SHOOT_MAINTENANCE_ABOVE_RPM = 60.0;
+  static final double PREP_READY_BELOW_RPM = 120.0;
+  static final double PREP_READY_ABOVE_RPM = 60.0;
   static final double STOPPED_TOLERANCE_RPM = 0.5;
   static final double DEFAULT_HOOD_ROTATIONS = 0.0;
   static final double HOOD_READY_TOLERANCE_ROTATIONS = 0.125;

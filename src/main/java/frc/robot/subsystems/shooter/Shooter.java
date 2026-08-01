@@ -51,7 +51,9 @@ public class Shooter extends SubsystemBase {
   }
 
   public boolean isFlywheelReady() {
-    return isFlywheelReadyFor(targetRpm);
+    return currentState == ShooterState.SHOOT
+        ? isFlywheelWithin(targetRpm, SHOOT_MAINTENANCE_BELOW_RPM, SHOOT_MAINTENANCE_ABOVE_RPM)
+        : isFlywheelWithin(targetRpm, SHOOT_ENTRY_TOLERANCE_RPM, SHOOT_ENTRY_TOLERANCE_RPM);
   }
 
   public boolean isHoodReady() {
@@ -69,9 +71,13 @@ public class Shooter extends SubsystemBase {
 
   public void setSetpoint(double flywheelRpm, double hoodRotations) {
     boolean changed = targetRpm != flywheelRpm || targetHoodRotations != hoodRotations;
+    boolean wasShooting = currentState == ShooterState.SHOOT;
     targetRpm = flywheelRpm;
     targetHoodRotations = hoodRotations;
-    if (changed && desiredState == ShooterState.SHOOT) currentState = ShooterState.TRANSITION;
+    if (changed && desiredState == ShooterState.SHOOT) {
+      currentState =
+          wasShooting && isShootMaintenanceReady() ? ShooterState.SHOOT : ShooterState.TRANSITION;
+    }
   }
 
   public void setSetpointForDistance(double distanceMeters) {
@@ -152,7 +158,7 @@ public class Shooter extends SubsystemBase {
     switch (currentState) {
       case STOP -> {}
       case PREPFUEL -> commandPrepFuel();
-      case SHOOT -> commandShoot();
+      case SHOOT -> maintainShoot();
       case TRANSITION -> {
         switch (desiredState) {
           case STOP -> transitionToStop();
@@ -174,17 +180,26 @@ public class Shooter extends SubsystemBase {
 
   private void transitionToPrepFuel() {
     commandPrepFuel();
-    if (isFlywheelReadyFor(PREP_FLYWHEEL_RPM)) currentState = ShooterState.PREPFUEL;
+    if (isFlywheelWithin(PREP_FLYWHEEL_RPM, PREP_READY_BELOW_RPM, PREP_READY_ABOVE_RPM)) {
+      currentState = ShooterState.PREPFUEL;
+    }
   }
 
   private void transitionToShoot() {
-    if (isFlywheelReady() && isHoodReady()) {
+    if (isShootEntryReady()) {
       commandShoot();
       currentState = ShooterState.SHOOT;
     } else {
-      runFlywheelVelocity(targetRpm);
-      runHoodPosition(targetHoodRotations);
-      runKickerVoltage(KICKER_PREP_VOLTAGE);
+      commandShootTransition();
+    }
+  }
+
+  private void maintainShoot() {
+    if (isShootMaintenanceReady()) {
+      commandShoot();
+    } else {
+      commandShootTransition();
+      currentState = ShooterState.TRANSITION;
     }
   }
 
@@ -200,10 +215,25 @@ public class Shooter extends SubsystemBase {
     runKickerVoltage(KICKER_SHOOT_VOLTAGE);
   }
 
-  private boolean isFlywheelReadyFor(double requestedRpm) {
+  private void commandShootTransition() {
+    runFlywheelVelocity(targetRpm);
+    runHoodPosition(targetHoodRotations);
+    runKickerVoltage(KICKER_PREP_VOLTAGE);
+  }
+
+  private boolean isShootEntryReady() {
+    return isFlywheelWithin(targetRpm, SHOOT_ENTRY_TOLERANCE_RPM, SHOOT_ENTRY_TOLERANCE_RPM)
+        && isHoodReady();
+  }
+
+  private boolean isShootMaintenanceReady() {
+    return isFlywheelWithin(targetRpm, SHOOT_MAINTENANCE_BELOW_RPM, SHOOT_MAINTENANCE_ABOVE_RPM)
+        && isHoodReady();
+  }
+
+  private boolean isFlywheelWithin(double requestedRpm, double belowRpm, double aboveRpm) {
     double actualRpm = inputs.flywheelLeadVelocityRpm;
-    return actualRpm >= requestedRpm - READY_BELOW_RPM
-        && actualRpm <= requestedRpm + READY_ABOVE_RPM;
+    return actualRpm >= requestedRpm - belowRpm && actualRpm <= requestedRpm + aboveRpm;
   }
 
   private static Voltage clampVoltage(Voltage voltage, Voltage maximum) {
