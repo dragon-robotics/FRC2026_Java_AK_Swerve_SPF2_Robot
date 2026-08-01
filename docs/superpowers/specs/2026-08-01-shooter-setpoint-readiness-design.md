@@ -16,24 +16,51 @@ Small pose changes can trigger this behavior continuously. Neutral shoot and pur
 deterministic version because Superstructure first applies the interpolated hood target and then
 overrides it with the 1.25-rotation neutral-zone limit every loop.
 
-## Design
+## Readiness Windows
 
 Keep the existing Superstructure contract: Hopper feeding still requires
 `shooter.getCurrentState() == ShooterState.SHOOT`. Do not bypass the Shooter state machine, change
-the readiness tolerances, or reorder subsystem periodic execution.
+the scheduler order, or gate Hopper directly from raw sensor values.
 
-When `Shooter.setSetpoint()` changes a target while the desired state is `SHOOT`, evaluate the most
-recent measured flywheel speed and hood position against the new target:
+Shooter uses separate acquisition and maintenance windows:
 
-- If both measurements satisfy the existing readiness tolerances, retain or restore `SHOOT`.
-- If either measurement is outside its readiness tolerance, enter `TRANSITION` as today.
+| Phase | Flywheel lower bound | Flywheel upper bound | Hood tolerance |
+| --- | ---: | ---: | ---: |
+| Entering `SHOOT` from `TRANSITION` | Target - 60 RPM | Target + 60 RPM | Target +/- 0.125 rotations |
+| Remaining in `SHOOT` | Target - 120 RPM | Target + 60 RPM | Target +/- 0.125 rotations |
+
+All bounds are inclusive. The tighter symmetric acquisition window prevents feeding until the
+flywheel has reached its target. The wider downward maintenance window accounts for the expected
+speed drop as balls load the flywheel without unnecessarily stopping the shot. Exceeding either
+maintenance bound, or leaving the hood tolerance, immediately returns Shooter to `TRANSITION` and
+restores the 6 V kicker preparation output until the acquisition window is satisfied again.
+
+`Shooter/FlywheelReady` reports readiness for the active phase: the acquisition window while in
+`TRANSITION`, and the maintenance window while in `SHOOT`. Hood readiness uses the same 0.125-
+rotation tolerance in both phases.
+
+## Setpoint Refresh Behavior
+
+When `Shooter.setSetpoint()` changes a target while Shooter is already in `SHOOT`, evaluate the
+most recent measurements against the new target's maintenance window:
+
+- If both measurements satisfy the maintenance tolerances, retain `SHOOT`.
+- If either measurement is outside its maintenance tolerance, enter `TRANSITION` and require the
+  tighter acquisition window before returning to `SHOOT`.
+- A Shooter that was already in `TRANSITION` cannot be promoted by a setpoint setter; only the
+  normal Shooter state transition can enter `SHOOT`.
 
 This makes `currentState` describe readiness for the current target at the moment Superstructure
 checks it. A meaningful target change still stops Hopper feeding until the mechanism reaches the
 new target. A small target refresh that is already satisfied no longer creates a false transition.
 
-No motor requests, current limits, PID values, control modes, alignment rules, or readiness
-tolerances change.
+Superstructure applies each distance-based target atomically. In neutral shoot and purge zones it
+passes the interpolated flywheel RPM and the 1.25-rotation hood override in one Shooter setpoint
+update, instead of briefly applying the interpolated hood position first. This prevents an
+intermediate, non-commanded target from affecting readiness.
+
+No motor configuration, current limit, PID value, control mode, alignment rule, or target value
+changes.
 
 ## Alternatives Rejected
 
@@ -48,9 +75,11 @@ tolerances change.
 
 Follow test-driven development with two regression levels:
 
-- A Shooter unit test proves that a changed setpoint already satisfied by the measured mechanism
-  remains in `SHOOT`. The existing large-change regression continues to prove that an unsatisfied
-  target enters `TRANSITION`.
+- Shooter unit tests prove the inclusive +/-60 RPM acquisition bounds, inclusive -120/+60 RPM
+  maintenance bounds, and the 0.125-rotation hood bound. They also prove that losing maintenance
+  readiness immediately returns to `TRANSITION` with the 6 V kicker preparation output.
+- A changed setpoint already inside the maintenance window remains in `SHOOT`. A large change
+  enters `TRANSITION` and cannot return until the tighter acquisition window is met.
 - A Superstructure scheduler test reproduces the neutral-zone target refresh and proves that a
   ready Shooter allows Hopper to request `INDEX_TO_SHOOTER` across a complete scheduler loop.
 
@@ -59,10 +88,14 @@ Run both focused test classes, then the full project verification task, formatti
 
 ## Acceptance Criteria
 
-1. Shooter state and its logged value no longer disagree with the same-loop Hopper readiness check
-   solely because a refreshed target remains within the approved readiness tolerances.
-2. Hopper enters `INDEX_TO_SHOOTER` when the ready Shooter and any required alignment condition are
+1. Shooter enters `SHOOT` only when flywheel speed is within +/-60 RPM and hood position is within
+   +/-0.125 rotations of their targets.
+2. Shooter remains in `SHOOT` while flywheel speed is between target -120 RPM and target +60 RPM
+   and hood position remains within +/-0.125 rotations.
+3. Leaving the maintenance window immediately returns Shooter to `TRANSITION`, commands the 6 V
+   kicker preparation output, and blocks Hopper feeding.
+4. A same-loop target refresh that remains inside the maintenance window does not create a false
+   transition, and neutral-zone targets are applied atomically.
+5. Hopper enters `INDEX_TO_SHOOTER` when Shooter is ready and any required alignment condition is
    satisfied.
-3. A target change outside either readiness tolerance still puts Shooter in `TRANSITION` and blocks
-   Hopper feeding.
-4. Existing mechanism configuration and tolerances remain unchanged.
+6. Existing mechanism configuration and target values remain unchanged.
