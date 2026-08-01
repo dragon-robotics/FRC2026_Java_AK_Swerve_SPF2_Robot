@@ -1,21 +1,13 @@
 package frc.robot.subsystems.vision;
 
-import edu.wpi.first.math.Matrix;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
-import edu.wpi.first.math.numbers.N1;
-import edu.wpi.first.math.numbers.N3;
 import frc.robot.subsystems.drive.Drive;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.DoubleFunction;
 import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
-
-@FunctionalInterface
-interface VisionMeasurementConsumer {
-  void accept(Pose2d pose, double timestampSeconds, Matrix<N3, N1> standardDeviations);
-}
 
 /** Drive callbacks and providers consumed by the vision subsystem. */
 public record VisionDriveBindings(

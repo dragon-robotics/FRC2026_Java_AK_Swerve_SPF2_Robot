@@ -30,6 +30,8 @@ public class GyroIOPigeon2 implements GyroIO {
   private final StatusSignal<AngularVelocity> yawVelocity = pigeon.getAngularVelocityZWorld();
   private final StatusSignal<Angle> pitch = pigeon.getPitch();
   private final StatusSignal<Angle> roll = pigeon.getRoll();
+  private final BaseStatusSignal[] refreshSignals =
+      createRefreshSignals(yaw, yawVelocity, pitch, roll);
 
   public GyroIOPigeon2() {
     var statusFrequencies = createStatusFrequencyConfig();
@@ -52,9 +54,7 @@ public class GyroIOPigeon2 implements GyroIO {
 
   @Override
   public void updateInputs(GyroIOInputs inputs) {
-    inputs.connected =
-        BaseStatusSignal.refreshAll(createRefreshSignals(yaw, yawVelocity, pitch, roll))
-            .equals(StatusCode.OK);
+    inputs.connected = BaseStatusSignal.refreshAll(refreshSignals).equals(StatusCode.OK);
     inputs.yawPosition = Rotation2d.fromDegrees(yaw.getValueAsDouble());
     inputs.yawVelocityRadPerSec = Units.degreesToRadians(yawVelocity.getValueAsDouble());
     inputs.pitchDegrees = pitch.getValueAsDouble();
